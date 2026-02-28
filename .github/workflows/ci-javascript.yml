@@ -1,0 +1,64 @@
+name: JavaScript CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'workers/js-worker/**'
+      - 'dashboard/**'
+      - '.github/workflows/ci-javascript.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'workers/js-worker/**'
+      - 'dashboard/**'
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+        component:
+          - workers/js-worker
+          - dashboard
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: ${{ matrix.component }}/package-lock.json
+
+    - name: Install dependencies
+      working-directory: ${{ matrix.component }}
+      run: npm ci
+
+    - name: Lint
+      working-directory: ${{ matrix.component }}
+      run: npm run lint
+
+    - name: Format check
+      working-directory: ${{ matrix.component }}
+      run: npm run format:check
+
+    - name: Type check
+      working-directory: ${{ matrix.component }}
+      run: npm run type-check
+
+    - name: Run tests
+      working-directory: ${{ matrix.component }}
+      run: npm test -- --coverage
+
+    - name: Build
+      working-directory: ${{ matrix.component }}
+      run: npm run build
+
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        directory: ${{ matrix.component }}/coverage
+        flags: ${{ matrix.component }}

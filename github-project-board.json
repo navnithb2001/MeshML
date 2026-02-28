@@ -1,0 +1,330 @@
+{
+  "name": "MeshML Development Board",
+  "description": "Track development of Student-Mesh Distributed ML Trainer",
+  "columns": [
+    {
+      "name": "📋 Backlog",
+      "description": "Tasks not yet started",
+      "issues": [
+        "TASK-0.1: Initialize project repository structure",
+        "TASK-0.2: Development environment setup",
+        "TASK-0.3: CI/CD pipeline foundation",
+        "TASK-1.1: PostgreSQL schema implementation",
+        "TASK-1.2: Redis cache structure",
+        "TASK-1.3: Database access layer (DAL)"
+      ]
+    },
+    {
+      "name": "🚧 In Progress",
+      "description": "Currently being worked on",
+      "issues": []
+    },
+    {
+      "name": "👀 In Review",
+      "description": "Awaiting code review",
+      "issues": []
+    },
+    {
+      "name": "🧪 Testing",
+      "description": "In QA/testing phase",
+      "issues": []
+    },
+    {
+      "name": "✅ Done",
+      "description": "Completed tasks",
+      "issues": []
+    }
+  ],
+  "milestones": [
+    {
+      "title": "M1: Infrastructure & Database",
+      "description": "Phase 0-1: Project setup and data layer",
+      "due_date": "2026-03-14",
+      "tasks": [
+        "TASK-0.1", "TASK-0.2", "TASK-0.3",
+        "TASK-1.1", "TASK-1.2", "TASK-1.3"
+      ]
+    },
+    {
+      "title": "M2: Communication Protocols",
+      "description": "Phase 2: gRPC, REST, GraphQL setup",
+      "due_date": "2026-03-21",
+      "tasks": [
+        "TASK-2.1", "TASK-2.2", "TASK-2.3"
+      ]
+    },
+    {
+      "title": "M3: API Gateway",
+      "description": "Phase 3: User-facing API service",
+      "due_date": "2026-04-11",
+      "tasks": [
+        "TASK-3.1", "TASK-3.2", "TASK-3.3", "TASK-3.4", "TASK-3.5"
+      ]
+    },
+    {
+      "title": "M4: Dataset Sharder",
+      "description": "Phase 4: Data partitioning service",
+      "due_date": "2026-04-25",
+      "tasks": [
+        "TASK-4.1", "TASK-4.2", "TASK-4.3", "TASK-4.4"
+      ]
+    },
+    {
+      "title": "M5: Task Orchestrator",
+      "description": "Phase 5: Worker coordination and fault tolerance",
+      "due_date": "2026-05-09",
+      "tasks": [
+        "TASK-5.1", "TASK-5.2", "TASK-5.3", "TASK-5.4", "TASK-5.5"
+      ]
+    },
+    {
+      "title": "M6: Parameter Server (CRITICAL)",
+      "description": "Phase 6: Core ML training engine",
+      "due_date": "2026-05-30",
+      "tasks": [
+        "TASK-6.1", "TASK-6.2", "TASK-6.3", "TASK-6.4", "TASK-6.5", "TASK-6.6"
+      ]
+    },
+    {
+      "title": "M7: C++ Worker",
+      "description": "Phase 7: High-performance worker implementation",
+      "due_date": "2026-06-20",
+      "tasks": [
+        "TASK-7.1", "TASK-7.2", "TASK-7.3", "TASK-7.4", "TASK-7.5"
+      ]
+    },
+    {
+      "title": "M8: JavaScript Worker",
+      "description": "Phase 8: Mobile/browser worker",
+      "due_date": "2026-07-04",
+      "tasks": [
+        "TASK-8.1", "TASK-8.2", "TASK-8.3", "TASK-8.4", "TASK-8.5"
+      ]
+    },
+    {
+      "title": "M9: Metrics & Monitoring",
+      "description": "Phase 9: Real-time metrics service",
+      "due_date": "2026-07-18",
+      "tasks": [
+        "TASK-9.1", "TASK-9.2", "TASK-9.3", "TASK-9.4", "TASK-9.5"
+      ]
+    },
+    {
+      "title": "M10: Model Registry",
+      "description": "Phase 10: Model versioning and export",
+      "due_date": "2026-07-25",
+      "tasks": [
+        "TASK-10.1", "TASK-10.2", "TASK-10.3"
+      ]
+    },
+    {
+      "title": "M11: Dashboard UI",
+      "description": "Phase 11: Web-based monitoring interface",
+      "due_date": "2026-08-08",
+      "tasks": [
+        "TASK-11.1", "TASK-11.2", "TASK-11.3", "TASK-11.4"
+      ]
+    },
+    {
+      "title": "M12: Testing & QA",
+      "description": "Phase 12: Comprehensive testing suite",
+      "due_date": "2026-08-22",
+      "tasks": [
+        "TASK-12.1", "TASK-12.2", "TASK-12.3", "TASK-12.4"
+      ]
+    },
+    {
+      "title": "M13: Documentation & Deployment",
+      "description": "Phase 13: Production readiness",
+      "due_date": "2026-09-05",
+      "tasks": [
+        "TASK-13.1", "TASK-13.2", "TASK-13.3", "TASK-13.4"
+      ]
+    },
+    {
+      "title": "M14: Security Hardening",
+      "description": "Phase 14: Production security",
+      "due_date": "2026-09-19",
+      "tasks": [
+        "TASK-14.1", "TASK-14.2", "TASK-14.3"
+      ]
+    }
+  ],
+  "labels": [
+    {
+      "name": "🔴 Critical",
+      "color": "d73a4a",
+      "description": "Blocking other tasks"
+    },
+    {
+      "name": "🟠 High Priority",
+      "color": "ff9800",
+      "description": "Important for MVP"
+    },
+    {
+      "name": "🟡 Medium Priority",
+      "color": "ffc107",
+      "description": "Nice to have"
+    },
+    {
+      "name": "🟢 Low Priority",
+      "color": "4caf50",
+      "description": "Future enhancement"
+    },
+    {
+      "name": "🐛 Bug",
+      "color": "d73a4a",
+      "description": "Something isn't working"
+    },
+    {
+      "name": "📚 Documentation",
+      "color": "0075ca",
+      "description": "Improvements or additions to documentation"
+    },
+    {
+      "name": "✨ Feature",
+      "color": "a2eeef",
+      "description": "New feature or request"
+    },
+    {
+      "name": "🏗️ Infrastructure",
+      "color": "5319e7",
+      "description": "DevOps, CI/CD, deployment"
+    },
+    {
+      "name": "🧪 Testing",
+      "color": "0e8a16",
+      "description": "Unit, integration, or E2E tests"
+    },
+    {
+      "name": "🔒 Security",
+      "color": "b60205",
+      "description": "Security-related tasks"
+    },
+    {
+      "name": "⚡ Performance",
+      "color": "fbca04",
+      "description": "Performance optimization"
+    },
+    {
+      "name": "🎨 Frontend",
+      "color": "e99695",
+      "description": "Dashboard/UI work"
+    },
+    {
+      "name": "⚙️ Backend",
+      "color": "c2e0c6",
+      "description": "Server-side services"
+    },
+    {
+      "name": "🧮 ML/AI",
+      "color": "ff69b4",
+      "description": "Machine learning specific"
+    },
+    {
+      "name": "🔧 C++",
+      "color": "00599c",
+      "description": "C++ worker code"
+    },
+    {
+      "name": "🐍 Python",
+      "color": "3776ab",
+      "description": "Python service code"
+    },
+    {
+      "name": "📱 JavaScript",
+      "color": "f1e05a",
+      "description": "JS/TS worker or dashboard"
+    },
+    {
+      "name": "🎓 Good First Issue",
+      "color": "7057ff",
+      "description": "Good for newcomers"
+    },
+    {
+      "name": "❓ Help Wanted",
+      "color": "008672",
+      "description": "Extra attention is needed"
+    },
+    {
+      "name": "🚫 Blocked",
+      "color": "b60205",
+      "description": "Waiting on dependency"
+    }
+  ],
+  "issue_templates": [
+    {
+      "name": "Task",
+      "title": "TASK-X.Y: [Task Title]",
+      "body": "## Description\n[Brief description of what needs to be done]\n\n## Acceptance Criteria\n- [ ] Criterion 1\n- [ ] Criterion 2\n- [ ] Tests written\n- [ ] Documentation updated\n\n## Dependencies\n- TASK-X.Y (if any)\n\n## Estimated Time\n[X hours/days]\n\n## Technical Notes\n[Any implementation details]"
+    },
+    {
+      "name": "Bug Report",
+      "title": "[BUG]: ",
+      "body": "## Bug Description\n[Clear and concise description]\n\n## Steps to Reproduce\n1. Go to '...'\n2. Click on '...'\n3. See error\n\n## Expected Behavior\n[What should happen]\n\n## Actual Behavior\n[What actually happens]\n\n## Environment\n- OS: [e.g. macOS 13]\n- Python: [e.g. 3.11]\n- Service: [e.g. API Gateway]\n\n## Logs\n```\n[Paste relevant logs]\n```"
+    },
+    {
+      "name": "Feature Request",
+      "title": "[FEATURE]: ",
+      "body": "## Feature Description\n[Clear description of the feature]\n\n## Use Case\n[Why is this needed?]\n\n## Proposed Solution\n[How should it work?]\n\n## Alternatives Considered\n[Other approaches]\n\n## Additional Context\n[Screenshots, diagrams, etc.]"
+    }
+  ],
+  "automation_rules": [
+    {
+      "trigger": "Issue labeled with '🔴 Critical'",
+      "action": "Move to 'In Progress' and assign to team lead"
+    },
+    {
+      "trigger": "Pull request opened",
+      "action": "Move linked issue to 'In Review'"
+    },
+    {
+      "trigger": "Pull request merged",
+      "action": "Move linked issue to 'Done'"
+    },
+    {
+      "trigger": "Issue labeled with '🚫 Blocked'",
+      "action": "Add comment requesting unblock plan"
+    }
+  ],
+  "team_assignments": {
+    "Backend Team": [
+      "TASK-3.x (API Gateway)",
+      "TASK-4.x (Dataset Sharder)",
+      "TASK-5.x (Task Orchestrator)",
+      "TASK-6.x (Parameter Server)"
+    ],
+    "Infrastructure Team": [
+      "TASK-0.x (Project Setup)",
+      "TASK-1.x (Database)",
+      "TASK-2.x (Protocols)",
+      "TASK-13.x (Deployment)"
+    ],
+    "ML Engineering Team": [
+      "TASK-6.x (Parameter Server)",
+      "TASK-7.x (C++ Worker)",
+      "TASK-9.x (Metrics)"
+    ],
+    "Frontend Team": [
+      "TASK-8.x (JS Worker)",
+      "TASK-11.x (Dashboard)"
+    ],
+    "DevOps Team": [
+      "TASK-0.3 (CI/CD)",
+      "TASK-13.3 (K8s)",
+      "TASK-13.4 (Monitoring)"
+    ],
+    "Security Team": [
+      "TASK-3.4 (RBAC)",
+      "TASK-14.x (Security)"
+    ]
+  },
+  "metrics_to_track": [
+    "Velocity (story points per sprint)",
+    "Cycle time (issue open to close)",
+    "Lead time (commit to deploy)",
+    "Code review time",
+    "Bug escape rate",
+    "Test coverage percentage"
+  ]
+}
