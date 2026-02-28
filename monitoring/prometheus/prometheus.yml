@@ -1,0 +1,78 @@
+# Monitoring Configuration for Prometheus
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'meshml-dev'
+    environment: 'development'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - 'alertmanager:9093'
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "alerts/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # PostgreSQL metrics (requires postgres_exporter)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    # Uncomment when postgres_exporter is added
+
+  # Redis metrics (requires redis_exporter)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    # Uncomment when redis_exporter is added
+
+  # API Gateway metrics
+  - job_name: 'api-gateway'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['api-gateway:8000']
+    # Uncomment when service is running
+
+  # Parameter Server metrics
+  - job_name: 'parameter-server'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['parameter-server:50051']
+    # Uncomment when service is running
+
+  # Task Orchestrator metrics
+  - job_name: 'task-orchestrator'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['task-orchestrator:50052']
+    # Uncomment when service is running
+
+  # Metrics Service
+  - job_name: 'metrics-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['metrics-service:4000']
+    # Uncomment when service is running
+
+  # Node exporter for system metrics
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    # Uncomment when node_exporter is added
+
+  # cAdvisor for container metrics
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    # Uncomment when cAdvisor is added
