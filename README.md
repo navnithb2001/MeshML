@@ -22,6 +22,8 @@
 
 ## 🏗️ Architecture
 
+MeshML uses a **heterogeneous, OS-agnostic architecture** that allows Windows, macOS, Linux, and even mobile devices to participate in distributed training.
+
 ```
 ┌─────────────┐
 │  Dashboard  │ ← GraphQL Subscriptions
@@ -39,13 +41,26 @@
 │Sharder│ │Orch. │ │  Server   │ │   Service   │
 └───────┘ └──────┘ └─────┬─────┘ └─────────────┘
                          │
-              ┌──────────┴──────────┐
-              │                     │
-         ┌────▼─────┐        ┌─────▼────┐
-         │C++ Worker│        │JS Worker │
-         │ (Laptop) │        │ (Mobile) │
-         └──────────┘        └──────────┘
+              ┌──────────┴──────────┬──────────────┐
+              │                     │              │
+         ┌────▼─────┐        ┌─────▼────┐   ┌─────▼────┐
+         │  Python  │        │C++ Worker│   │JS Worker │
+         │  Worker  │        │ (Windows)│   │(Android) │
+         │  (macOS) │        │  CUDA GPU│   │ Browser  │
+         └──────────┘        └──────────┘   └──────────┘
 ```
+
+### Key Architecture Principles
+
+✅ **Cross-Platform Communication**: gRPC + Protocol Buffers work on any OS  
+✅ **Centralized Coordination**: Workers communicate through services, not peer-to-peer  
+✅ **Capability-Based Assignment**: Workers report hardware, get appropriate tasks  
+✅ **On-Demand Data Fetching**: Batches downloaded from S3-compatible storage  
+✅ **Fault Tolerant**: Workers can join/leave anytime, orphaned batches reassigned
+
+📚 **Detailed Architecture Docs:**
+- [Cross-Platform Design](docs/architecture/cross-platform-design.md) - How heterogeneous devices work together
+- [Data Flow Diagrams](docs/architecture/data-flow-diagrams.md) - Visual system flows
 
 ### Component Overview
 
