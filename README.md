@@ -128,7 +128,7 @@ curl -X POST http://localhost:8000/api/v1/jobs \
 - [Worker Setup - Laptop](docs/guides/worker-setup-laptop.md)
 - [Worker Setup - Mobile](docs/guides/worker-setup-mobile.md)
 - [Development Guide](docs/development/local-setup.md)
-- [Contributing](CONTRIBUTING.md)
+- [Contributing](docs/CONTRIBUTING.md)
 
 ## 🛠️ Technology Stack
 
@@ -141,8 +141,6 @@ curl -X POST http://localhost:8000/api/v1/jobs \
 | **Frontend** | React 18, TypeScript, Tailwind CSS |
 | **Infrastructure** | Docker, Kubernetes, Helm |
 | **Monitoring** | Prometheus, Grafana, Jaeger |
-
-See [tech-stack.md](tech-stack.md) for detailed decisions.
 
 ## 🧪 Testing
 
@@ -165,20 +163,20 @@ npm test
 **Current Phase**: Phase 0 - Infrastructure Setup
 
 - [x] Project structure initialized
-- [ ] Docker Compose setup
-- [ ] CI/CD pipeline
-- [ ] Database migrations
-- [ ] gRPC protocol definitions
+- [x] Docker Compose setup
+- [x] CI/CD pipeline
+- [x] Database migrations
+- [x] gRPC protocol definitions
 
-See [TASKS.md](TASKS.md) for full roadmap.
+See [TASKS.md](docs/TASKS.md) for full roadmap and [PROGRESS.md](docs/PROGRESS.md) for detailed status.
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
 
 ### Development Workflow
 
-1. Pick a task from [TASKS.md](TASKS.md)
+1. Pick a task from [TASKS.md](docs/TASKS.md)
 2. Create a feature branch: `git checkout -b feature/TASK-X.Y`
 3. Make changes following our [code standards](docs/development/code-standards.md)
 4. Write tests (min. 80% coverage)
