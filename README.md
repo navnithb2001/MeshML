@@ -58,9 +58,8 @@ MeshML uses a **heterogeneous, OS-agnostic architecture** that allows Windows, m
 ✅ **On-Demand Data Fetching**: Batches downloaded from S3-compatible storage  
 ✅ **Fault Tolerant**: Workers can join/leave anytime, orphaned batches reassigned
 
-📚 **Detailed Architecture Docs:**
-- [Cross-Platform Design](docs/architecture/cross-platform-design.md) - How heterogeneous devices work together
-- [Data Flow Diagrams](docs/architecture/data-flow-diagrams.md) - Visual system flows
+📚 **Complete Architecture:**
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - Complete system design, data flows, deployment, and security
 
 ### Component Overview
 
