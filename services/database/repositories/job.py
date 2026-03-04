@@ -4,9 +4,9 @@ Worker, Job, and DataBatch repositories.
 from typing import Optional, List
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from database.models.worker import Worker, WorkerStatus, WorkerType
-from database.models.job import Job, JobStatus
-from database.models.data_batch import DataBatch, BatchStatus
+from services.database.models.worker import Worker, WorkerStatus, WorkerType
+from services.database.models.job import Job, JobStatus
+from services.database.models.data_batch import DataBatch, BatchStatus
 from .base import BaseRepository
 
 

@@ -5,7 +5,7 @@ from typing import Callable, TypeVar, Any
 from contextlib import contextmanager
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from database.session import get_db_context
+from services.database.session import get_db_context
 import logging
 
 T = TypeVar('T')

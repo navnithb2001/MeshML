@@ -3,7 +3,7 @@ User repository with specific query methods.
 """
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from database.models.user import User
+from services.database.models.user import User
 from .base import BaseRepository
 
 

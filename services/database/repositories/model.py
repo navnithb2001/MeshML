@@ -3,7 +3,7 @@ Model repository with specific query methods.
 """
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from database.models.model import Model, ModelStatus
+from services.database.models.model import Model, ModelStatus
 from .base import BaseRepository
 
 

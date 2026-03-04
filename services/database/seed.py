@@ -12,17 +12,17 @@ from typing import List, Dict, Any
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
-from database.models.user import User
-from database.models.group import Group, GroupMember, GroupInvitation, GroupRole, InvitationStatus
-from database.models.model import Model, ModelStatus
-from database.models.worker import Worker, WorkerType, WorkerStatus
-from database.models.job import Job, JobStatus
-from database.models.data_batch import DataBatch, BatchStatus
-from database.repositories import (
+from services.database.models.user import User
+from services.database.models.group import Group, GroupMember, GroupInvitation, GroupRole, InvitationStatus
+from services.database.models.model import Model, ModelStatus
+from services.database.models.worker import Worker, WorkerType, WorkerStatus
+from services.database.models.job import Job, JobStatus
+from services.database.models.data_batch import DataBatch, BatchStatus
+from services.database.repositories import (
     UserRepository, GroupRepository, GroupMemberRepository, GroupInvitationRepository,
     ModelRepository, WorkerRepository, JobRepository, DataBatchRepository
 )
-from database.repositories.transactions import transaction
+from services.database.repositories.transactions import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -218,11 +218,12 @@ class DatabaseSeeder:
         
         # Pending invitation to AI Research Lab
         if len(self.groups) > 0:
+            import uuid
             inv = self.invitation_repo.create(
                 group_id=self.groups[0].id,
                 invited_by_id=self.users[0].id,
                 email='newstudent@university.edu',
-                token='invite-token-123',
+                token=f'invite-token-{uuid.uuid4().hex[:12]}',
                 role=GroupRole.MEMBER,
                 status=InvitationStatus.PENDING,
                 expires_at=datetime.utcnow() + timedelta(days=7)
@@ -545,7 +546,7 @@ class DatabaseSeeder:
         Returns:
             Dictionary with counts of deleted entities
         """
-        logger.warning("Clearing all data from database...")
+        logger.warning("Clearing all data from services.database...")
         
         with transaction(self.db):
             # Delete in reverse order of dependencies
@@ -587,7 +588,7 @@ def seed_database(db: Session, **kwargs) -> Dict[str, Any]:
 
 def clear_database(db: Session) -> Dict[str, int]:
     """
-    Convenience function to clear all data from database.
+    Convenience function to clear all data from services.database.
     
     Args:
         db: Database session

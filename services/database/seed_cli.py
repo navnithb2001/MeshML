@@ -13,11 +13,11 @@ import argparse
 import logging
 from pathlib import Path
 
-# Add services directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from database.session import get_db_context
-from database.seed import DatabaseSeeder
+from services.database.session import get_db_context
+from services.database.seed import DatabaseSeeder
 
 # Configure logging
 logging.basicConfig(
@@ -55,7 +55,7 @@ def seed_command(args):
 
 
 def clear_command(args):
-    """Clear all data from database."""
+    """Clear all data from services.database."""
     if not args.force:
         print("⚠️  WARNING: This will DELETE ALL DATA from the database!")
         response = input("Are you sure you want to continue? (yes/no): ")

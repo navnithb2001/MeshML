@@ -4,7 +4,7 @@ Base repository class with common CRUD operations.
 from typing import TypeVar, Generic, Type, Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import select, update, delete, and_, or_
-from database.models.base import Base
+from services.database.models.base import Base
 
 T = TypeVar('T', bound=Base)
 
@@ -268,7 +268,7 @@ class BaseRepository(Generic[T]):
     # ============= Utility Methods =============
     
     def refresh(self, instance: T) -> T:
-        """Refresh instance from database."""
+        """Refresh instance from services.database."""
         self.db.refresh(instance)
         return instance
     
