@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package meshml.dataset_sharder;
+
+// Dataset Sharder Service - Dataset partitioning and batch management
+service DatasetSharder {
+  // Create data shards for a job
+  rpc CreateShards(ShardRequest) returns (ShardResponse);
+  
+  // Get shard information
+  rpc GetShardInfo(ShardInfoRequest) returns (ShardInfo);
+  
+  // List all shards for a job
+  rpc ListShards(ListShardsRequest) returns (ShardList);
+  
+  // Validate dataset before sharding
+  rpc ValidateDataset(DatasetValidationRequest) returns (DatasetValidationResponse);
+}
+
+// Request to create data shards
+message ShardRequest {
+  string job_id = 1;                     // Job identifier
+  string dataset_gcs_path = 2;           // GCS path to dataset
+  int32 num_shards = 3;                  // Number of shards to create
+  string dataset_type = 4;               // "image", "text", "audio", "custom"
+  bytes config = 5;                      // Sharding configuration (JSON)
+  bool shuffle = 6;                      // Whether to shuffle data
+  int32 seed = 7;                        // Random seed for reproducibility
+}
+
+// Response after creating shards
+message ShardResponse {
+  bool success = 1;
+  string message = 2;
+  int32 shards_created = 3;              // Number of shards created
+  repeated string shard_paths = 4;       // GCS paths to created shards
+  int64 total_samples = 5;               // Total number of samples
+  int64 total_size_bytes = 6;            // Total dataset size
+  map<string, int64> shard_sizes = 7;    // Size of each shard in bytes
+}
+
+// Request for shard information
+message ShardInfoRequest {
+  string job_id = 1;                     // Job identifier
+  int32 shard_id = 2;                    // Shard identifier
+}
+
+// Shard information
+message ShardInfo {
+  int32 shard_id = 1;                    // Shard identifier
+  string gcs_path = 2;                   // GCS path to shard
+  int64 size_bytes = 3;                  // Shard size in bytes
+  int32 num_samples = 4;                 // Number of samples in shard
+  string checksum = 5;                   // SHA-256 checksum
+  string status = 6;                     // "pending", "ready", "assigned", "processing", "completed"
+  string assigned_worker_id = 7;         // Worker assigned to this shard
+  int64 created_at = 8;                  // Creation timestamp
+}
+
+// Request to list shards
+message ListShardsRequest {
+  string job_id = 1;                     // Job identifier
+  string status_filter = 2;              // Optional status filter
+  int32 page_size = 3;                   // Number of results per page
+  int32 page_number = 4;                 // Page number (1-indexed)
+}
+
+// List of shards
+message ShardList {
+  repeated ShardInfo shards = 1;
+  int32 total_count = 2;                 // Total number of shards
+  int32 page_size = 3;
+  int32 page_number = 4;
+  bool has_more = 5;                     // Whether more pages exist
+}
+
+// Request to validate dataset
+message DatasetValidationRequest {
+  string dataset_gcs_path = 1;           // GCS path to dataset
+  string dataset_type = 2;               // "image", "text", "audio", "custom"
+  bytes validation_config = 3;           // Validation rules (JSON)
+}
+
+// Dataset validation response
+message DatasetValidationResponse {
+  bool is_valid = 1;
+  string message = 2;
+  repeated ValidationError errors = 3;
+  DatasetStats stats = 4;
+}
+
+// Validation error
+message ValidationError {
+  string file_path = 1;                  // Path to file with error
+  string error_type = 2;                 // Error type
+  string error_message = 3;              // Error details
+  int32 line_number = 4;                 // Line number (if applicable)
+}
+
+// Dataset statistics
+message DatasetStats {
+  int64 total_files = 1;                 // Total number of files
+  int64 total_samples = 2;               // Total number of samples
+  int64 total_size_bytes = 3;            // Total dataset size
+  map<string, int64> file_types = 4;     // Count by file type
+  map<string, int64> label_distribution = 5; // Samples per label
+}

@@ -1,0 +1,125 @@
+syntax = "proto3";
+
+package meshml.common;
+
+// Common types shared across services
+
+// Timestamp message
+message Timestamp {
+  int64 seconds = 1;                     // Unix timestamp in seconds
+  int32 nanos = 2;                       // Nanoseconds component
+}
+
+// Error information
+message Error {
+  string code = 1;                       // Error code (e.g., "INVALID_INPUT")
+  string message = 2;                    // Human-readable error message
+  repeated ErrorDetail details = 3;      // Additional error details
+}
+
+// Error detail
+message ErrorDetail {
+  string field = 1;                      // Field name that caused error
+  string issue = 2;                      // Description of the issue
+}
+
+// Pagination parameters
+message Pagination {
+  int32 page_size = 1;                   // Number of items per page
+  int32 page_number = 2;                 // Page number (1-indexed)
+  string sort_by = 3;                    // Field to sort by
+  bool sort_desc = 4;                    // Sort in descending order
+}
+
+// Paginated response metadata
+message PageInfo {
+  int32 total_count = 1;                 // Total number of items
+  int32 page_size = 2;                   // Items per page
+  int32 page_number = 3;                 // Current page number
+  int32 total_pages = 4;                 // Total number of pages
+  bool has_next = 5;                     // Whether next page exists
+  bool has_prev = 6;                     // Whether previous page exists
+}
+
+// Job status enum
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_PENDING = 1;
+  JOB_STATUS_VALIDATING = 2;
+  JOB_STATUS_RUNNING = 3;
+  JOB_STATUS_PAUSED = 4;
+  JOB_STATUS_COMPLETED = 5;
+  JOB_STATUS_FAILED = 6;
+  JOB_STATUS_CANCELLED = 7;
+}
+
+// Worker status enum
+enum WorkerStatus {
+  WORKER_STATUS_UNSPECIFIED = 0;
+  WORKER_STATUS_ONLINE = 1;
+  WORKER_STATUS_OFFLINE = 2;
+  WORKER_STATUS_BUSY = 3;
+  WORKER_STATUS_ERROR = 4;
+}
+
+// Model status enum
+enum ModelStatus {
+  MODEL_STATUS_UNSPECIFIED = 0;
+  MODEL_STATUS_UPLOADING = 1;
+  MODEL_STATUS_VALIDATING = 2;
+  MODEL_STATUS_READY = 3;
+  MODEL_STATUS_FAILED = 4;
+  MODEL_STATUS_DEPRECATED = 5;
+}
+
+// Batch status enum
+enum BatchStatus {
+  BATCH_STATUS_UNSPECIFIED = 0;
+  BATCH_STATUS_PENDING = 1;
+  BATCH_STATUS_ASSIGNED = 2;
+  BATCH_STATUS_PROCESSING = 3;
+  BATCH_STATUS_COMPLETED = 4;
+  BATCH_STATUS_FAILED = 5;
+}
+
+// Worker type enum
+enum WorkerType {
+  WORKER_TYPE_UNSPECIFIED = 0;
+  WORKER_TYPE_PYTHON = 1;
+  WORKER_TYPE_CPP = 2;
+  WORKER_TYPE_JAVASCRIPT = 3;
+}
+
+// Dataset type enum
+enum DatasetType {
+  DATASET_TYPE_UNSPECIFIED = 0;
+  DATASET_TYPE_IMAGE = 1;
+  DATASET_TYPE_TEXT = 2;
+  DATASET_TYPE_AUDIO = 3;
+  DATASET_TYPE_VIDEO = 4;
+  DATASET_TYPE_CUSTOM = 5;
+}
+
+// Model architecture type
+enum ModelArchitecture {
+  MODEL_ARCHITECTURE_UNSPECIFIED = 0;
+  MODEL_ARCHITECTURE_CNN = 1;
+  MODEL_ARCHITECTURE_RNN = 2;
+  MODEL_ARCHITECTURE_LSTM = 3;
+  MODEL_ARCHITECTURE_TRANSFORMER = 4;
+  MODEL_ARCHITECTURE_CUSTOM = 5;
+}
+
+// Health status for services
+message HealthStatus {
+  string service_name = 1;               // Name of the service
+  string status = 2;                     // "healthy", "degraded", "unhealthy"
+  string version = 3;                    // Service version
+  int64 uptime_seconds = 4;              // Service uptime
+  map<string, string> details = 5;       // Additional health details
+}
+
+// Configuration message
+message Config {
+  map<string, string> parameters = 1;    // Configuration key-value pairs
+}

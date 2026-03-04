@@ -1,0 +1,189 @@
+syntax = "proto3";
+
+package meshml.metrics;
+
+// Metrics Service - Real-time metrics collection and streaming
+service MetricsService {
+  // Report training metrics
+  rpc ReportMetrics(MetricsReport) returns (MetricsAck);
+  
+  // Subscribe to real-time metrics stream
+  rpc StreamMetrics(MetricsStreamRequest) returns (stream MetricsUpdate);
+  
+  // Get aggregated metrics for a job
+  rpc GetJobMetrics(JobMetricsRequest) returns (JobMetrics);
+  
+  // Get worker metrics
+  rpc GetWorkerMetrics(WorkerMetricsRequest) returns (WorkerMetrics);
+  
+  // Get system-wide metrics
+  rpc GetSystemMetrics(SystemMetricsRequest) returns (SystemMetrics);
+}
+
+// Metrics report from worker or service
+message MetricsReport {
+  string source_id = 1;                  // Worker or service ID
+  string source_type = 2;                // "worker", "parameter_server", "orchestrator"
+  string job_id = 3;                     // Job identifier (if job-specific)
+  int64 timestamp = 4;                   // Unix timestamp
+  
+  // Training metrics
+  TrainingMetrics training = 5;
+  
+  // System metrics
+  SystemResourceMetrics system = 6;
+  
+  // Custom metrics
+  map<string, float> custom_metrics = 7;
+}
+
+// Training-specific metrics
+message TrainingMetrics {
+  int32 epoch = 1;                       // Current epoch
+  int32 batch = 2;                       // Current batch
+  float loss = 3;                        // Training loss
+  float accuracy = 4;                    // Training accuracy
+  float learning_rate = 5;               // Current learning rate
+  map<string, float> additional_metrics = 6; // F1, AUC, precision, recall, etc.
+}
+
+// System resource metrics
+message SystemResourceMetrics {
+  float cpu_usage_percent = 1;           // CPU usage
+  float ram_usage_percent = 2;           // RAM usage
+  float gpu_usage_percent = 3;           // GPU usage (if available)
+  int64 ram_used_bytes = 4;              // RAM used in bytes
+  int64 gpu_memory_used_bytes = 5;       // GPU memory used
+  float network_sent_mbps = 6;           // Network send rate
+  float network_recv_mbps = 7;           // Network receive rate
+}
+
+// Metrics acknowledgment
+message MetricsAck {
+  bool success = 1;
+  string message = 2;
+}
+
+// Request to stream metrics
+message MetricsStreamRequest {
+  string job_id = 1;                     // Job identifier
+  int32 interval_seconds = 2;            // Update interval (default: 5)
+  repeated string metric_types = 3;      // Filter by metric types
+}
+
+// Real-time metrics update
+message MetricsUpdate {
+  string job_id = 1;
+  int64 timestamp = 2;
+  TrainingMetrics training = 3;
+  repeated WorkerStatus workers = 4;
+  JobProgress progress = 5;
+}
+
+// Worker status in metrics
+message WorkerStatus {
+  string worker_id = 1;
+  string status = 2;                     // "online", "busy", "offline"
+  int32 batches_completed = 3;
+  float avg_batch_time_seconds = 4;
+  SystemResourceMetrics resources = 5;
+}
+
+// Job progress
+message JobProgress {
+  int32 current_epoch = 1;
+  int32 total_epochs = 2;
+  int32 batches_completed = 3;
+  int32 batches_total = 4;
+  float progress_percent = 5;
+  int64 eta_seconds = 6;                 // Estimated time to completion
+  int32 workers_active = 7;
+}
+
+// Request for job metrics
+message JobMetricsRequest {
+  string job_id = 1;
+  int64 start_timestamp = 2;             // Optional: filter by time range
+  int64 end_timestamp = 3;
+  int32 aggregation_interval_seconds = 4; // Aggregate metrics over interval
+}
+
+// Job metrics response
+message JobMetrics {
+  string job_id = 1;
+  string status = 2;                     // Job status
+  JobProgress progress = 3;
+  repeated MetricsTimeSeries time_series = 4;
+  JobStatistics statistics = 5;
+}
+
+// Time series data for metrics
+message MetricsTimeSeries {
+  string metric_name = 1;                // "loss", "accuracy", etc.
+  repeated TimeSeriesPoint points = 2;
+}
+
+// Time series data point
+message TimeSeriesPoint {
+  int64 timestamp = 1;
+  float value = 2;
+  int32 epoch = 3;
+  int32 batch = 4;
+}
+
+// Job statistics
+message JobStatistics {
+  float avg_loss = 1;
+  float best_accuracy = 2;
+  float current_accuracy = 3;
+  float total_samples_processed = 4;
+  int64 total_training_time_seconds = 5;
+  float avg_batch_time_seconds = 6;
+  int32 total_gradient_updates = 7;
+}
+
+// Request for worker metrics
+message WorkerMetricsRequest {
+  string worker_id = 1;
+  string job_id = 2;                     // Optional: filter by job
+  int64 start_timestamp = 3;
+  int64 end_timestamp = 4;
+}
+
+// Worker metrics response
+message WorkerMetrics {
+  string worker_id = 1;
+  int32 batches_completed = 2;
+  float avg_batch_time_seconds = 3;
+  float total_training_time_seconds = 4;
+  repeated MetricsTimeSeries time_series = 5;
+  SystemResourceMetrics avg_resources = 6;
+}
+
+// Request for system metrics
+message SystemMetricsRequest {
+  int64 start_timestamp = 1;
+  int64 end_timestamp = 2;
+}
+
+// System-wide metrics
+message SystemMetrics {
+  int32 total_workers = 1;
+  int32 active_workers = 2;
+  int32 total_jobs = 3;
+  int32 running_jobs = 4;
+  int32 completed_jobs = 5;
+  float total_gpu_utilization_percent = 6;
+  int64 total_samples_processed = 7;
+  repeated JobSummary active_jobs = 8;
+}
+
+// Job summary for system metrics
+message JobSummary {
+  string job_id = 1;
+  string name = 2;
+  string status = 3;
+  int32 workers_assigned = 4;
+  float progress_percent = 5;
+  int64 started_at = 6;
+}
