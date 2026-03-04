@@ -1,12 +1,208 @@
 # MeshML Development Progress
 
-**Last Updated**: March 1, 2026
+**Last Updated**: March 3, 2026
 
 ---
 
 ## 🎯 Current Status
 
-**Phase:** 0 Complete → Phase 1 Starting **Full Validation Report:** See `PHASE0_VALIDATION_COMPLETE.md`
+**Phase:** 1 In Progress (Database Layer)  
+**Current Task:** TASK-1.2 (Redis cache structure)  
+**Completed:** TASK-1.1 ✅  
+**Full Phase 0 Report:** See `PHASE0_VALIDATION_COMPLETE.md`
+
+---
+
+## 📊 Phase 1: Database & Storage Layer
+
+### ✅ TASK-1.1: PostgreSQL Schema Implementation
+**Status**: Complete ✅  
+**Completed**: March 3, 2026
+
+**Implementation Details**:
+
+**Technologies Used:**
+- **SQLAlchemy 2.0.25** - Modern Python ORM with type hints (Mapped[])
+- **Alembic 1.13.1** - Database migration management
+- **Psycopg2 2.9.9** - PostgreSQL adapter
+- **Pydantic 2.5.3** - Settings management with validation
+- **Python 3.11** - In mesh.venv virtual environment
+
+**Database Schema Created (8 Tables):**
+
+1. **`users`** - User authentication and profiles
+   - Fields: id, email (unique), username (unique), hashed_password, full_name, is_active, is_verified
+   - Timestamps: created_at, updated_at
+   - Indexes: email, username
+   - Relationships: owned_groups, group_memberships, invitations_sent, models
+
+2. **`groups`** - Collaboration groups
+   - Fields: id, name, description, owner_id (FK → users), is_active
+   - Timestamps: created_at, updated_at
+   - Indexes: name, owner_id
+   - Relationships: owner, members, invitations, jobs, models
+
+3. **`group_members`** - Group membership with RBAC
+   - Fields: id, group_id (FK → groups), user_id (FK → users), role (enum: owner/admin/member)
+   - Timestamps: created_at, updated_at
+   - Indexes: group_id, user_id
+   - Cascade: DELETE on group or user deletion
+
+4. **`group_invitations`** - Invitation system
+   - Fields: id, group_id (FK → groups), invited_by_id (FK → users), email, token (unique), role, status (enum: pending/accepted/rejected/expired), expires_at
+   - Timestamps: created_at, updated_at
+   - Indexes: group_id, email, token
+   - Cascade: DELETE on group deletion
+
+5. **`models`** - Custom model registry with lifecycle
+   - Fields: id, name, description, uploaded_by_id (FK → users), group_id (FK → groups), gcs_path, status (enum: uploading/validating/ready/failed/deprecated), validation_error, model_metadata (JSON), version, parent_model_id (FK → models, self-referential)
+   - Timestamps: created_at, updated_at
+   - Indexes: name, uploaded_by_id, group_id, status, parent_model_id
+   - Cascade: DELETE on user/group deletion, SET NULL on parent deletion
+   - Comment: Stores custom PyTorch models uploaded as Python files
+
+6. **`workers`** - Device/worker registration and tracking
+   - Fields: id, worker_id (unique UUID), name, worker_type (enum: python/cpp/javascript), status (enum: online/offline/busy/error), capabilities (JSON: GPU, RAM, CPU, network), ip_address, port, last_heartbeat
+   - Timestamps: created_at, updated_at
+   - Indexes: worker_id, worker_type, status, last_heartbeat
+   - JSON capabilities: {"gpu": "NVIDIA RTX 3080", "ram_gb": 16, "cpu_cores": 8, "network_mbps": 100}
+
+7. **`jobs`** - Training jobs with group association
+   - Fields: id, name, description, group_id (FK → groups), model_id (FK → models, RESTRICT), status (enum: pending/validating/running/paused/completed/failed/cancelled), config (JSON), dataset_path (GCS), progress (0-100%), current_epoch, total_epochs, metrics (JSON), error_message
+   - Timestamps: created_at, updated_at
+   - Indexes: name, group_id, model_id, status
+   - Cascade: DELETE on group deletion, RESTRICT on model deletion
+   - Note: Job only accepted after model & dataset validation passes
+
+8. **`data_batches`** - Dataset sharding and distribution
+   - Fields: id, job_id (FK → jobs), worker_id (FK → workers, nullable), batch_index, shard_path (GCS), size_bytes, checksum (SHA-256), status (enum: pending/assigned/processing/completed/failed), retry_count, max_retries (default 3)
+   - Timestamps: created_at, updated_at
+   - Indexes: job_id, worker_id, status
+   - Cascade: DELETE on job deletion, SET NULL on worker deletion
+
+**Enums Created:**
+- `GroupRole`: owner, admin, member
+- `InvitationStatus`: pending, accepted, rejected, expired
+- `ModelStatus`: uploading, validating, ready, failed, deprecated
+- `WorkerType`: python, cpp, javascript
+- `WorkerStatus`: online, offline, busy, error
+- `JobStatus`: pending, validating, running, paused, completed, failed, cancelled
+- `BatchStatus`: pending, assigned, processing, completed, failed
+
+**Migration System:**
+- **Tool**: Alembic with autogenerate support
+- **Initial Migration**: `4779f6dc7e3c_initial_schema_users_groups_models_.py`
+- **Applied**: Successfully migrated to PostgreSQL 15 (TimescaleDB)
+- **Database**: `meshml` on localhost:5432 (Docker container `meshml-postgres`)
+- **User**: `meshml_user` with password `meshml_dev_password`
+
+**Key Design Decisions:**
+
+1. **TimestampMixin**: All tables inherit `created_at` and `updated_at` timestamps with automatic updates
+2. **Type Hints**: Used SQLAlchemy 2.0 `Mapped[]` for better IDE support and type safety
+3. **Enums**: PostgreSQL native ENUMs for status fields (better performance than strings)
+4. **Indexes**: Strategic indexes on foreign keys and frequently queried fields
+5. **Cascades**: Proper cascade rules (DELETE, SET NULL, RESTRICT) for data integrity
+6. **JSON Fields**: Used for flexible data (capabilities, config, metrics, model_metadata)
+7. **Self-Referential FK**: `models.parent_model_id` for model versioning
+8. **Reserved Name Fix**: Renamed `metadata` → `model_metadata` to avoid SQLAlchemy conflict
+9. **Settings Management**: Pydantic BaseSettings with .env file support
+10. **Connection Pooling**: Configured pool_size=5, max_overflow=10, recycle=3600s
+
+**Files Created:**
+```
+services/database/
+├── alembic/
+│   ├── versions/
+│   │   └── 4779f6dc7e3c_initial_schema_users_groups_models_.py
+│   ├── env.py (configured for auto-import of models)
+│   ├── script.py.mako
+│   └── README
+├── models/
+│   ├── __init__.py (exports all models)
+│   ├── base.py (Base class + TimestampMixin)
+│   ├── user.py (User model)
+│   ├── group.py (Group, GroupMember, GroupInvitation)
+│   ├── model.py (Model registry)
+│   ├── worker.py (Worker tracking)
+│   ├── job.py (Training jobs)
+│   └── data_batch.py (Dataset shards)
+├── config.py (Pydantic settings)
+├── session.py (DB session factory + helpers)
+├── alembic.ini (Alembic config)
+├── .env (local credentials - git-ignored)
+├── .env.example (template)
+├── requirements.txt (dependencies)
+└── README.md (comprehensive documentation)
+```
+**Total**: 19 files created (including .env)
+
+**Database Verification:**
+```bash
+$ docker exec meshml-postgres psql -U meshml_user -d meshml -c "\dt"
+                List of relations
+ Schema |       Name        | Type  |    Owner    
+--------+-------------------+-------+-------------
+ public | alembic_version   | table | meshml_user
+ public | data_batches      | table | meshml_user
+ public | group_invitations | table | meshml_user
+ public | group_members     | table | meshml_user
+ public | groups            | table | meshml_user
+ public | jobs              | table | meshml_user
+ public | models            | table | meshml_user
+ public | users             | table | meshml_user
+ public | workers           | table | meshml_user
+```
+
+**Dependencies Installed** (in mesh.venv):
+- sqlalchemy==2.0.25
+- alembic==1.13.1
+- psycopg2-binary==2.9.9
+- pydantic==2.5.3
+- pydantic-settings==2.1.0
+- python-dotenv==1.0.0
+- pytest==7.4.3
+- pytest-asyncio==0.21.1
+
+**Usage Examples:**
+
+```python
+# FastAPI integration
+from fastapi import Depends
+from database.session import get_db
+from database.models import User
+
+@app.get("/users")
+def list_users(db: Session = Depends(get_db)):
+    return db.query(User).all()
+
+# Context manager
+from database.session import get_db_context
+from database.models import Group, GroupMember, GroupRole
+
+with get_db_context() as db:
+    user = User(email="student@ex.com", username="student1", ...)
+    db.add(user)
+    db.flush()
+    
+    group = Group(name="Team", owner_id=user.id)
+    db.add(group)
+    db.flush()
+    
+    member = GroupMember(group_id=group.id, user_id=user.id, role=GroupRole.OWNER)
+    db.add(member)
+    # Auto-commit on context exit
+```
+
+**Testing:**
+- Migration upgrade/downgrade tested successfully
+- All foreign key constraints verified
+- Indexes confirmed via `\d table_name`
+- Connection pooling functional
+
+**Next Steps:**
+- [ ] TASK-1.2: Redis cache structure (heartbeats, global weights)
+- [ ] TASK-1.3: Database access layer (CRUD utilities, transactions)
 
 ---
 
