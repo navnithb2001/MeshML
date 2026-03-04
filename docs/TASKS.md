@@ -1,60 +1,18 @@
 # Student-Mesh Distributed ML Trainer - Task Breakdown
 
 ## Phase 0: Project Setup & Infrastructure
-- [ ] **TASK-0.1**: Initialize project repository structure
-  - Create directory ## Phase 7: Parameter Server Service (Core ML Engine)
-- [ ] **TASK-7.1**: Model initialization
-  - Load custom model from GCS using create_model()## Phase 11: Model Registry Service
-- [ ] **TASK-11.1**: Model storage infrastructure
-  - GCS bucket setup (gs://meshml-models/)
-  - Directory structure: {model_id}/model.py
-  - Metadata storage in PostgreSQL models table (from Phase 1)
-  
-- [ ] **TASK-11.2**: Model lifecycle management
-  - State transitions: uploading → validating → ready → failed → deprecated
-  - Model versioning with parent_model_id
-  - Model retrieval endpoints (GET /models/:id, GET /models/:id/download)
-  
-- [ ] **TASK-11.3**: Model search & discovery
-  - List models by group (GET /groups/:id/models)
-  - Model metadata filtering (architecture type, dataset type)
-  - Model usage tracking (which jobs use which models)
-
----
-
-## Phase 12: Dashboard & Monitoring UIrt for PyTorch models (primary focus)
-  - Random weight initialization or pre-trained model loading
-  
-- [ ] **TASK-7.2**: Parameter storage
-  - In-memory parameter tensors (NumPy/PyTorch)
-  - Version control for model checkpoints
-  - Redis-backed persistence
-  
-- [ ] **TASK-7.3**: Gradient aggregation logic
-  - Federated Averaging (FedAvg) implementation
-  - Asynchronous gradient averaging
-  - Staleness-aware weighting (version ID-based)
-  - Gradient clipping and normalization
-  
-- [ ] **TASK-7.4**: Synchronization strategies
-  - Synchronous updates (wait for all workers)
-  - Asynchronous updates (process gradients immediately)
-  - Semi-synchronous (configurable staleness threshold)
-  
-- [ ] **TASK-7.5**: Parameter distribution
-  - Broadcast updated parameters to workers
-  - Delta compression (send only changed parameters)
-  - HTTP/gRPC endpoints for parameter push/pullervices
+- [x] **TASK-0.1**: Initialize project repository structure
+  - Create directory hierarchy for microservices
   - Set up monorepo vs multi-repo decision
   - Initialize Git with .gitignore for Python, C++, Node.js
   
-- [ ] **TASK-0.2**: Development environment setup
+- [x] **TASK-0.2**: Development environment setup
   - Docker Compose for local development
   - PostgreSQL container configuration
   - Redis container configuration
   - Development dependency management (requirements.txt, package.json, CMakeLists.txt)
   
-- [ ] **TASK-0.3**: CI/CD pipeline foundation
+- [x] **TASK-0.3**: CI/CD pipeline foundation
   - GitHub Actions / GitLab CI setup
   - Linting and formatting configs (Black, ESLint, clang-format)
   - Unit test infrastructure
