@@ -3,6 +3,7 @@ Database configuration using Pydantic settings.
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+from pathlib import Path
 
 
 class DatabaseSettings(BaseSettings):
@@ -16,7 +17,7 @@ class DatabaseSettings(BaseSettings):
     pool_recycle: int = 3600
     
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(Path(__file__).parent / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False
     )
