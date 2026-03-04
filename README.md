@@ -59,8 +59,7 @@ MeshML uses a **heterogeneous, OS-agnostic architecture** that allows Windows, m
 ✅ **Fault Tolerant**: Workers can join/leave anytime, orphaned batches reassigned
 
 📚 **Complete Architecture:**
-- [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) - Complete system design, data flows, deployment, and security
-- [Architecture Gaps](docs/architecture/ARCHITECTURE_GAPS.md) - Identified gaps and implementation priorities
+- [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) - Complete system design, data flows, validation, testing, deployment
 
 ### Component Overview
 

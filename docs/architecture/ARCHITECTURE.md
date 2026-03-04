@@ -2043,94 +2043,809 @@ kubectl get ingress -n meshml
 
 ---
 
-## Architecture Gaps Identified
+## 11. Model & Dataset Validation
 
-### Gap 1: Model Validation Service
-**Missing:** Dedicated service to validate uploaded models before deployment
-**Impact:** Invalid models could crash workers
-**Solution:** Add Model Validator microservice that:
-- Runs uploaded model in sandboxed environment
-- Tests with sample data
-- Checks memory requirements
-- Validates output shapes
+### 11.1 Upload Validation Flow
 
-### Gap 2: Cost Tracking & Billing
-**Missing:** System to track compute costs per group/user
-**Impact:** Can't bill students or manage budgets
-**Solution:** Add cost tracking in PostgreSQL:
-```sql
-CREATE TABLE compute_costs (
-    group_id UUID,
-    user_id UUID,
-    job_id UUID,
-    compute_hours DECIMAL,
-    cost_usd DECIMAL,
-    date DATE
-);
+**Before accepting any job, validate both model and dataset:**
+
+```python
+# API Gateway validation endpoint
+@app.post("/api/v1/jobs/validate")
+async def validate_job(model_file: UploadFile, dataset_info: DatasetInfo):
+    """
+    Validate model and dataset before job creation.
+    Returns validation report or errors.
+    """
+    
+    # 1. Model Validation
+    model_validation = validate_model_file(model_file)
+    if not model_validation.is_valid:
+        raise HTTPException(400, detail=model_validation.errors)
+    
+    # 2. Dataset Validation  
+    dataset_validation = validate_dataset(dataset_info)
+    if not dataset_validation.is_valid:
+        raise HTTPException(400, detail=dataset_validation.errors)
+    
+    return {
+        "valid": True,
+        "model_metadata": model_validation.metadata,
+        "dataset_info": dataset_validation.info
+    }
 ```
 
-### Gap 3: Worker Resource Limits
-**Missing:** Mechanism to limit worker resource usage
-**Impact:** Workers could consume all device resources
-**Solution:** Add config in worker:
+### 11.2 Model Validation
+
+**Simple validation without complex sandboxing:**
+
 ```python
-WORKER_LIMITS = {
-    "max_cpu_percent": 80,
-    "max_ram_gb": 8,
-    "max_gpu_percent": 90
+def validate_model_file(file_path: str) -> ValidationResult:
+    """
+    Validate uploaded model Python file.
+    
+    Checks:
+    1. Python syntax is valid
+    2. Required functions exist
+    3. MODEL_METADATA is present
+    4. Can instantiate model (no execution)
+    5. File size < 10MB
+    """
+    
+    # Size check
+    if os.path.getsize(file_path) > 10 * 1024 * 1024:
+        return ValidationResult(False, ["File too large (max 10MB)"])
+    
+    # Syntax check
+    try:
+        with open(file_path) as f:
+            compile(f.read(), file_path, 'exec')
+    except SyntaxError as e:
+        return ValidationResult(False, [f"Syntax error: {e}"])
+    
+    # Import and check structure
+    spec = importlib.util.spec_from_file_location("user_model", file_path)
+    module = importlib.util.module_from_spec(spec)
+    
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        return ValidationResult(False, [f"Import error: {e}"])
+    
+    # Check required components
+    errors = []
+    if not hasattr(module, 'create_model'):
+        errors.append("Missing create_model() function")
+    if not hasattr(module, 'create_dataloader'):
+        errors.append("Missing create_dataloader() function")
+    if not hasattr(module, 'MODEL_METADATA'):
+        errors.append("Missing MODEL_METADATA dict")
+    
+    if errors:
+        return ValidationResult(False, errors)
+    
+    # Validate MODEL_METADATA structure
+    metadata = module.MODEL_METADATA
+    required_keys = ['name', 'input_type', 'output_type', 'dataset_format']
+    for key in required_keys:
+        if key not in metadata:
+            errors.append(f"MODEL_METADATA missing '{key}'")
+    
+    if errors:
+        return ValidationResult(False, errors)
+    
+    # Try to instantiate model (with timeout)
+    try:
+        with timeout(seconds=10):
+            test_config = {'num_classes': 10, 'input_size': 28}
+            model = module.create_model(test_config)
+            
+            # Check it's a PyTorch model
+            if not isinstance(model, nn.Module):
+                return ValidationResult(False, ["create_model() must return nn.Module"])
+    
+    except TimeoutError:
+        return ValidationResult(False, ["Model instantiation timeout (>10s)"])
+    except Exception as e:
+        return ValidationResult(False, [f"Model instantiation failed: {e}"])
+    
+    return ValidationResult(True, [], metadata)
+```
+
+### 11.3 Dataset Validation
+
+**Validate dataset before sharding:**
+
+```python
+def validate_dataset(dataset_path: str, format: str) -> ValidationResult:
+    """
+    Validate dataset structure and content.
+    
+    Supports:
+    - ImageFolder (class directories)
+    - COCO JSON
+    - CSV files
+    """
+    
+    if format == "imagefolder":
+        return validate_imagefolder(dataset_path)
+    elif format == "coco":
+        return validate_coco(dataset_path)
+    elif format == "csv":
+        return validate_csv(dataset_path)
+    else:
+        return ValidationResult(False, [f"Unsupported format: {format}"])
+
+
+def validate_imagefolder(path: str) -> ValidationResult:
+    """
+    Validate ImageFolder structure.
+    
+    Expected:
+    dataset/
+      ├── class1/
+      │   ├── img1.jpg
+      │   └── img2.jpg
+      └── class2/
+          └── img3.jpg
+    """
+    
+    if not os.path.isdir(path):
+        return ValidationResult(False, ["Path is not a directory"])
+    
+    # Check for class directories
+    class_dirs = [d for d in os.listdir(path) 
+                  if os.path.isdir(os.path.join(path, d))]
+    
+    if len(class_dirs) < 2:
+        return ValidationResult(False, ["Need at least 2 class directories"])
+    
+    # Check each class has images
+    total_images = 0
+    for class_dir in class_dirs:
+        class_path = os.path.join(path, class_dir)
+        images = [f for f in os.listdir(class_path) 
+                  if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        
+        if len(images) == 0:
+            return ValidationResult(False, [f"Class '{class_dir}' has no images"])
+        
+        total_images += len(images)
+    
+    if total_images < 100:
+        return ValidationResult(False, ["Need at least 100 images total"])
+    
+    return ValidationResult(True, [], {
+        'num_classes': len(class_dirs),
+        'total_images': total_images,
+        'classes': class_dirs
+    })
+
+
+def validate_coco(json_path: str) -> ValidationResult:
+    """Validate COCO JSON format."""
+    
+    try:
+        with open(json_path) as f:
+            data = json.load(f)
+    except Exception as e:
+        return ValidationResult(False, [f"Invalid JSON: {e}"])
+    
+    # Check required keys
+    required = ['images', 'annotations', 'categories']
+    for key in required:
+        if key not in data:
+            return ValidationResult(False, [f"Missing '{key}' in COCO JSON"])
+    
+    if len(data['images']) == 0:
+        return ValidationResult(False, ["No images in dataset"])
+    
+    return ValidationResult(True, [], {
+        'num_images': len(data['images']),
+        'num_annotations': len(data['annotations']),
+        'num_categories': len(data['categories'])
+    })
+```
+
+---
+
+## 12. Model Registry
+
+### 12.1 Model Storage Architecture
+
+**Simple two-tier system:**
+
+1. **GCS (Google Cloud Storage)** - Actual model files
+2. **PostgreSQL** - Model metadata
+
+```sql
+CREATE TABLE models (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES users(id),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    file_path TEXT NOT NULL,  -- GCS path: gs://meshml-models/{model_id}/model.py
+    file_size_bytes BIGINT,
+    checksum VARCHAR(128),  -- SHA256
+    
+    -- Metadata from MODEL_METADATA
+    input_type VARCHAR(50),  -- image, text, tabular
+    output_type VARCHAR(50),  -- classification, regression
+    dataset_format VARCHAR(50),  -- imagefolder, coco, csv
+    
+    -- Lifecycle
+    status VARCHAR(50) DEFAULT 'uploading',  -- uploading, validating, ready, failed, deprecated
+    validation_errors JSONB,
+    
+    -- Versioning (simple)
+    version INT DEFAULT 1,
+    parent_model_id UUID REFERENCES models(id),  -- For tracking iterations
+    
+    -- Timestamps
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    validated_at TIMESTAMP,
+    
+    -- Usage tracking
+    jobs_created INT DEFAULT 0,
+    total_training_hours DECIMAL DEFAULT 0
+);
+
+CREATE INDEX idx_models_user ON models(user_id);
+CREATE INDEX idx_models_status ON models(status);
+CREATE INDEX idx_models_parent ON models(parent_model_id);
+```
+
+### 12.2 Model Lifecycle
+
+```
+┌─────────────┐
+│  Uploading  │ ← User uploads model.py file
+└──────┬──────┘
+       │
+       ↓ File saved to GCS
+┌──────────────┐
+│  Validating  │ ← Run validation checks
+└──────┬───┬───┘
+       │   │
+  ✅   │   │  ❌
+       ↓   ↓
+┌─────────┐  ┌────────┐
+│  Ready  │  │ Failed │
+└────┬────┘  └────────┘
+     │
+     ↓ Used in jobs
+┌──────────┐
+│  Active  │
+└────┬─────┘
+     │
+     ↓ User creates new version
+┌────────────┐
+│ Deprecated │ ← Old version still accessible but not recommended
+└────────────┘
+```
+
+### 12.3 Model API Endpoints
+
+```python
+# Upload model
+POST /api/v1/models
+Content-Type: multipart/form-data
+{
+  "file": <model.py>,
+  "name": "My CNN",
+  "description": "Custom CNN for MNIST"
+}
+
+Response:
+{
+  "model_id": "mdl_abc123",
+  "status": "validating",
+  "validation_eta_seconds": 30
+}
+
+# Check validation status
+GET /api/v1/models/{model_id}/validation
+
+Response:
+{
+  "status": "ready",
+  "validation_results": {
+    "syntax_check": "✅ Pass",
+    "structure_check": "✅ Pass",
+    "instantiation_test": "✅ Pass"
+  }
+}
+
+# List user's models
+GET /api/v1/models?user_id={user_id}
+
+Response:
+{
+  "models": [
+    {
+      "id": "mdl_abc123",
+      "name": "My CNN",
+      "status": "ready",
+      "version": 2,
+      "created_at": "2026-03-01T10:00:00Z",
+      "jobs_created": 5
+    }
+  ]
 }
 ```
 
-### Gap 4: Job Prioritization
-**Missing:** Queue system for jobs when workers are scarce
-**Impact:** First-come-first-served may not be fair
-**Solution:** Add priority queue in Task Orchestrator:
+---
+
+## 13. Testing Strategy (Student-Friendly)
+
+### 13.1 Testing Pyramid
+
+```
+           ┌────────────┐
+           │   Manual   │  ← Demo testing (5%)
+           │    E2E     │
+           ├────────────┤
+           │ Integration│  ← API tests (25%)
+           │   Tests    │
+           ├────────────┤
+           │    Unit    │  ← Function tests (70%)
+           │   Tests    │
+           └────────────┘
+```
+
+### 13.2 Unit Tests (70% effort)
+
+**Test individual functions in isolation:**
+
 ```python
-# Priority based on:
-# - Group tier (paid vs free)
-# - User contribution history
-# - Job size
+# services/api-gateway/tests/test_validation.py
+import pytest
+from app.validation import validate_model_file
+
+def test_validate_model_with_missing_function():
+    """Test model validation fails when create_model is missing."""
+    
+    # Create temp file without create_model()
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write("""
+import torch.nn as nn
+
+MODEL_METADATA = {
+    'name': 'Test Model',
+    'input_type': 'image'
+}
+
+def create_dataloader(path, config):
+    pass
+""")
+        temp_path = f.name
+    
+    result = validate_model_file(temp_path)
+    
+    assert result.is_valid == False
+    assert "Missing create_model()" in result.errors
+    
+    os.unlink(temp_path)
+
+
+def test_validate_model_success():
+    """Test model validation passes with correct structure."""
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write("""
+import torch.nn as nn
+
+class MyModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc = nn.Linear(10, 10)
+    
+    def forward(self, x):
+        return self.fc(x)
+
+def create_model(config):
+    return MyModel()
+
+def create_dataloader(path, config):
+    pass
+
+MODEL_METADATA = {
+    'name': 'Test',
+    'input_type': 'image',
+    'output_type': 'classification',
+    'dataset_format': 'imagefolder'
+}
+""")
+        temp_path = f.name
+    
+    result = validate_model_file(temp_path)
+    
+    assert result.is_valid == True
+    assert result.metadata['name'] == 'Test'
+    
+    os.unlink(temp_path)
 ```
 
-### Gap 5: Model Versioning
-**Missing:** Track model versions and lineage
-**Impact:** Can't compare experiments or reproduce results
-**Solution:** Add to jobs table:
-```sql
-ALTER TABLE jobs ADD COLUMN parent_job_id UUID;
-ALTER TABLE jobs ADD COLUMN version INT;
+**Run tests:**
+```bash
+# In each service directory
+cd services/api-gateway
+pytest tests/ -v --cov=app --cov-report=html
+
+# Check coverage report
+open htmlcov/index.html
 ```
 
-### Gap 6: Data Privacy/Federated Learning Option
-**Missing:** True federated learning where data never leaves device
-**Impact:** Some users may want data to stay on device
-**Solution:** Add federated mode where:
-- No dataset upload
-- Workers use local data
-- Only gradients shared
+### 13.3 Integration Tests (25% effort)
 
-### Gap 7: Worker Reputation System
-**Missing:** Track worker reliability
-**Impact:** Can't identify and deprioritize flaky workers
-**Solution:** Add worker_stats table:
-```sql
-CREATE TABLE worker_stats (
-    worker_id VARCHAR,
-    jobs_completed INT,
-    jobs_failed INT,
-    avg_speed DECIMAL,
-    reliability_score DECIMAL
-);
+**Test services working together:**
+
+```python
+# services/api-gateway/tests/integration/test_job_creation.py
+import pytest
+from fastapi.testclient import TestClient
+from app.main import app
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+@pytest.fixture
+def test_db():
+    """Set up test database."""
+    # Use separate test database
+    pass
+
+def test_create_job_end_to_end(client, test_db):
+    """Test complete job creation flow."""
+    
+    # 1. Register user
+    response = client.post("/api/v1/auth/register", json={
+        "email": "test@example.com",
+        "password": "testpass123"
+    })
+    assert response.status_code == 200
+    token = response.json()['access_token']
+    
+    # 2. Create group
+    response = client.post(
+        "/api/v1/groups",
+        json={"name": "Test Group"},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    group_id = response.json()['group_id']
+    
+    # 3. Upload model
+    with open("tests/fixtures/valid_model.py", "rb") as f:
+        response = client.post(
+            "/api/v1/models",
+            files={"file": f},
+            data={"name": "Test Model"},
+            headers={"Authorization": f"Bearer {token}"}
+        )
+    model_id = response.json()['model_id']
+    
+    # 4. Create job
+    response = client.post(
+        f"/api/v1/groups/{group_id}/jobs",
+        json={
+            "name": "Test Job",
+            "model_id": model_id,
+            "dataset_url": "gs://test/dataset",
+            "config": {"epochs": 5}
+        },
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    
+    assert response.status_code == 200
+    job = response.json()
+    assert job['status'] == 'pending'
 ```
 
-### Gap 8: Notification System
-**Missing:** Comprehensive notification service
-**Impact:** Users miss important events
-**Solution:** Add notification microservice with:
-- Email (SendGrid)
-- Push notifications (FCM)
-- In-app notifications
-- Preferences management
+### 13.4 Manual E2E Testing (5% effort)
+
+**For student demo - test with real devices:**
+
+```bash
+# Test Checklist for Demo
+
+□ 1. Start all services
+   docker-compose up -d
+   
+□ 2. Register 3 test users (Alice, Bob, Charlie)
+   curl -X POST http://localhost:8000/api/v1/auth/register ...
+   
+□ 3. Alice creates group "ML Class Demo"
+   
+□ 4. Alice invites Bob and Charlie
+   
+□ 5. Start workers on 3 different machines:
+   - Alice's MacBook (Python worker)
+   - Bob's Windows laptop (Python worker)  
+   - Charlie's phone browser (JS worker)
+   
+□ 6. Alice uploads MNIST dataset (verify validation)
+   
+□ 7. Alice uploads CNN model (verify validation)
+   
+□ 8. Alice creates training job
+   
+□ 9. Verify Task Orchestrator assigns batches to 3 workers
+   
+□ 10. Monitor dashboard - watch real-time training metrics
+   
+□ 11. Training completes - verify accuracy ~96%
+   
+□ 12. Download final model
+   
+□ 13. Test with sample image
+
+✅ Demo successful if training completes in <10 minutes
+```
+
+### 13.5 Test Coverage Goals
+
+**Realistic for student project:**
+
+```
+Component              | Target Coverage | Priority
+-----------------------|-----------------|----------
+API Gateway            | 70%             | High
+Dataset Sharder        | 60%             | Medium
+Task Orchestrator      | 65%             | High
+Parameter Server       | 75%             | Critical
+Metrics Service        | 50%             | Low
+Model Registry         | 60%             | Medium
+Workers (Python)       | 65%             | High
+Workers (C++)          | 40%             | Low
+Workers (JavaScript)   | 40%             | Low
+Dashboard              | 30%             | Low (manual testing)
+```
+
+---
+
+## 14. Secrets Management (Simple Approach)
+
+### 14.1 Local Development
+
+**Use `.env` files (NOT committed to git):**
+
+```bash
+# .env.local (in root directory)
+# DO NOT COMMIT THIS FILE
+
+# Database
+DATABASE_URL=postgresql://meshml_user:meshml_dev_password@localhost:5432/meshml
+REDIS_URL=redis://:meshml_redis_password@localhost:6379/0
+
+# MinIO (S3-compatible)
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin123
+
+# JWT
+JWT_SECRET_KEY=dev-secret-change-in-production-1234567890
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_MINUTES=60
+
+# API Keys (for production features, optional for student project)
+SENDGRID_API_KEY=optional
+TWILIO_API_KEY=optional
+```
+
+**Load in services:**
+
+```python
+# services/api-gateway/app/config.py
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    database_url: str
+    redis_url: str
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+    jwt_expiration_minutes: int = 60
+    
+    class Config:
+        env_file = ".env.local"
+        env_file_encoding = 'utf-8'
+
+settings = Settings()
+```
+
+### 14.2 Production Deployment (GCP)
+
+**Use environment variables in Kubernetes:**
+
+```yaml
+# infrastructure/kubernetes/deployments/api-gateway.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+spec:
+  template:
+    spec:
+      containers:
+      - name: api-gateway
+        image: gcr.io/meshml/api-gateway:latest
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: meshml-secrets
+              key: database-url
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: meshml-secrets
+              key: jwt-secret
+```
+
+**Create secrets:**
+
+```bash
+# Create Kubernetes secret (one-time)
+kubectl create secret generic meshml-secrets \
+  --from-literal=database-url='postgresql://user:pass@cloud-sql-proxy:5432/meshml' \
+  --from-literal=jwt-secret='CHANGE-THIS-TO-RANDOM-STRING' \
+  --from-literal=redis-url='redis://:password@memorystore-ip:6379/0'
+```
+
+### 14.3 Secret Generation
+
+**Generate secure secrets:**
+
+```python
+# scripts/generate_secrets.py
+import secrets
+import base64
+
+def generate_jwt_secret():
+    """Generate 256-bit secret for JWT."""
+    return base64.b64encode(secrets.token_bytes(32)).decode()
+
+def generate_api_key():
+    """Generate API key for services."""
+    return secrets.token_urlsafe(32)
+
+if __name__ == "__main__":
+    print("JWT_SECRET_KEY=" + generate_jwt_secret())
+    print("API_KEY=" + generate_api_key())
+```
+
+```bash
+# Run once before deployment
+python scripts/generate_secrets.py
+
+# Output:
+# JWT_SECRET_KEY=h8K9mN3pQ5sT7vX2zA4cF6gJ9lM2oR5tY8wB1dE4hI7k=
+# API_KEY=xK9mP3qS6tV9yB2dF5hJ8lN1oQ4rU7wZ0cE3gI6k
+```
+
+---
+
+## 15. Deployment Strategy (Student-Friendly)
+
+### 15.1 Local Development Deployment
+
+**Simple Docker Compose (what you're using now):**
+
+```bash
+# Start everything
+cd infrastructure/docker
+docker-compose up -d
+
+# Check status
+docker-compose ps
+
+# View logs
+docker-compose logs -f api-gateway
+
+# Stop everything
+docker-compose down
+
+# Reset (delete data)
+docker-compose down -v
+```
+
+### 15.2 Production Deployment (Simplified)
+
+**No blue-green, no canary - just simple rolling update:**
+
+```bash
+# 1. Build new Docker images
+docker build -t gcr.io/meshml/api-gateway:v1.1 services/api-gateway/
+docker build -t gcr.io/meshml/task-orchestrator:v1.1 services/task-orchestrator/
+# ... for each service
+
+# 2. Push to Google Container Registry
+docker push gcr.io/meshml/api-gateway:v1.1
+docker push gcr.io/meshml/task-orchestrator:v1.1
+
+# 3. Update Kubernetes deployments
+kubectl set image deployment/api-gateway api-gateway=gcr.io/meshml/api-gateway:v1.1
+kubectl set image deployment/task-orchestrator task-orchestrator=gcr.io/meshml/task-orchestrator:v1.1
+
+# 4. Watch rollout
+kubectl rollout status deployment/api-gateway
+
+# 5. If something breaks, rollback
+kubectl rollout undo deployment/api-gateway
+```
+
+### 15.3 Deployment Checklist
+
+**Before deploying to production:**
+
+```
+□ 1. All tests passing
+   pytest services/*/tests/ -v
+   
+□ 2. Database migrations ready
+   cd database/migrations
+   alembic upgrade head
+   
+□ 3. Secrets configured
+   kubectl get secret meshml-secrets
+   
+□ 4. Build all images
+   make build-all
+   
+□ 5. Push to registry
+   make push-all
+   
+□ 6. Apply Kubernetes configs
+   kubectl apply -f infrastructure/kubernetes/
+   
+□ 7. Verify pods running
+   kubectl get pods -n meshml
+   
+□ 8. Check logs for errors
+   kubectl logs -f deployment/api-gateway -n meshml
+   
+□ 9. Test health endpoints
+   curl https://api.meshml.edu/health
+   
+□ 10. Run smoke tests
+   pytest tests/smoke/ --env=production
+```
+
+### 15.4 Simple CI/CD (GitHub Actions)
+
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Run tests
+      run: |
+        pip install pytest
+        pytest services/*/tests/ -v
+    
+    - name: Build Docker images
+      run: |
+        docker build -t gcr.io/meshml/api-gateway:${{ github.sha }} services/api-gateway/
+    
+    - name: Push to GCR
+      run: |
+        echo ${{ secrets.GCP_SA_KEY }} | docker login -u _json_key --password-stdin https://gcr.io
+        docker push gcr.io/meshml/api-gateway:${{ github.sha }}
+    
+    - name: Deploy to GKE
+      run: |
+        kubectl set image deployment/api-gateway api-gateway=gcr.io/meshml/api-gateway:${{ github.sha }}
+```
 
 ---
 
@@ -2142,19 +2857,24 @@ This architecture provides:
 ✅ **Cloud-native** with Google Cloud Platform  
 ✅ **Group-based collaboration** with RBAC  
 ✅ **Custom model support** via Python file upload  
+✅ **Model & dataset validation** before job acceptance  
+✅ **Simple model registry** with versioning  
 ✅ **Cross-platform workers** (Python, C++, JavaScript)  
 ✅ **Real-time monitoring** via WebSocket  
 ✅ **Fault tolerance** with automatic recovery  
 ✅ **Scalability** with auto-scaling services  
 ✅ **Security** with JWT, TLS, signed URLs  
+✅ **Testing strategy** (unit, integration, manual E2E)  
+✅ **Simple secrets management** (env files + K8s secrets)  
+✅ **Straightforward deployment** (Docker Compose + K8s rolling updates)
 
-**Status:** Architecture is complete and ready for Phase 1 implementation (Database & Storage Layer).
+**Status:** Architecture is **complete and ready** for Phase 1 implementation.
 
 **Next Steps:**
-1. Implement database schema (PostgreSQL tables)
+1. Implement database schema (PostgreSQL tables with model registry)
 2. Set up Redis data structures
 3. Create database access layer (DAL)
-4. Begin API Gateway implementation
+4. Begin API Gateway with validation endpoints
 
 ---
 
