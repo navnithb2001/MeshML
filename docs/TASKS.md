@@ -100,28 +100,30 @@
 ---
 
 ## Phase 4: Model & Dataset Validation Service
-- [ ] **TASK-4.1**: Custom model upload endpoint
+- [x] **TASK-4.1**: Custom model upload endpoint
   - POST /models/upload (upload Python file with create_model(), create_dataloader(), MODEL_METADATA)
   - Store in GCS bucket (gs://meshml-models/{model_id}/model.py)
   - Update models table with 'uploading' state
   
-- [ ] **TASK-4.2**: Model validation functions
+- [x] **TASK-4.2**: Model validation functions
   - Python syntax validation (ast.parse)
   - Structure validation (check for required functions)
   - Model instantiation test (import and call create_model())
   - Metadata validation (MODEL_METADATA dict completeness)
   - Update model state: 'uploading' → 'validating' → 'ready' or 'failed'
   
-- [ ] **TASK-4.3**: Dataset validation functions
+- [x] **TASK-4.3**: Dataset validation functions
   - Format validation (ImageFolder/COCO/CSV structure)
   - Content validation (file types, image dimensions)
   - Size limit checks (prevent excessive datasets)
   - Dataset metadata extraction
   
-- [ ] **TASK-4.4**: Validation error reporting
-  - Detailed error messages for validation failures
-  - User-friendly feedback (syntax errors, missing functions)
-  - Validation logs storage
+- [x] **TASK-4.4**: Validation error reporting
+  - Error categorization system (severity levels, error categories)
+  - Structured ValidationReport with actionable suggestions
+  - ValidationLog database model for audit trail
+  - API endpoints for validation history and statistics
+  - Integration with model and dataset validators
 
 ---
 

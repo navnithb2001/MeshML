@@ -144,7 +144,7 @@ async def health_check():
 
 
 # Import and include routers
-from app.api.v1 import system, auth, groups, jobs, workers, monitoring
+from app.api.v1 import system, auth, groups, jobs, workers, monitoring, models, datasets, validation_logs
 
 app.include_router(system.router, prefix=settings.API_V1_PREFIX, tags=["System"])
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
@@ -152,12 +152,9 @@ app.include_router(groups.router, prefix=settings.API_V1_PREFIX)
 app.include_router(jobs.router, prefix=settings.API_V1_PREFIX)
 app.include_router(workers.router, prefix=settings.API_V1_PREFIX)
 app.include_router(monitoring.router, prefix=settings.API_V1_PREFIX)
-
-# Additional routers will be added in subsequent tasks:
-# from app.api.v1 import users, models
-# 
-# app.include_router(users.router, prefix=f"{settings.API_V1_PREFIX}/users", tags=["Users"])
-# app.include_router(models.router, prefix=f"{settings.API_V1_PREFIX}/models", tags=["Models"])
+app.include_router(models.router, prefix=f"{settings.API_V1_PREFIX}/models", tags=["Models"])
+app.include_router(datasets.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["Datasets"])
+app.include_router(validation_logs.router, prefix=settings.API_V1_PREFIX, tags=["Validation Logs"])
 
 
 if __name__ == "__main__":

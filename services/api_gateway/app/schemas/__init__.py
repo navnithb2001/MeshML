@@ -84,6 +84,25 @@ from app.schemas.worker import (
     WorkerBatchUpdate,
     WorkerListResponse,
 )
+from app.schemas.model import (
+    ModelStatus,
+    ModelBase,
+    ModelUploadRequest,
+    ModelUploadResponse,
+    ModelMetadata,
+    ModelValidationStatus,
+    ModelResponse,
+    ModelListResponse,
+    ModelUpdate,
+    ModelDeprecateRequest,
+)
+from app.schemas.dataset import (
+    DatasetFormat,
+    DatasetValidationRequest,
+    DatasetValidationStatus,
+    DatasetMetadata,
+    DatasetInfo,
+)
 
 __all__ = [
     "UserBase",
@@ -158,5 +177,20 @@ __all__ = [
     "WorkerStats",
     "WorkerBatchUpdate",
     "WorkerListResponse",
+    "ModelStatus",
+    "ModelBase",
+    "ModelUploadRequest",
+    "ModelUploadResponse",
+    "ModelMetadata",
+    "ModelValidationStatus",
+    "ModelResponse",
+    "ModelListResponse",
+    "ModelUpdate",
+    "ModelDeprecateRequest",
+    "DatasetFormat",
+    "DatasetValidationRequest",
+    "DatasetValidationStatus",
+    "DatasetMetadata",
+    "DatasetInfo",
 ]
 
