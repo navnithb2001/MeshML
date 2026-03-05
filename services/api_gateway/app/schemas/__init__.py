@@ -42,6 +42,19 @@ from app.schemas.job import (
     JobMetricsUpdate,
     JobListResponse,
 )
+from app.schemas.worker import (
+    WorkerCapabilities,
+    WorkerRegister,
+    WorkerUpdate,
+    WorkerResponse,
+    WorkerDetailResponse,
+    WorkerHeartbeat,
+    HeartbeatResponse,
+    WorkerAssignment,
+    WorkerStats,
+    WorkerBatchUpdate,
+    WorkerListResponse,
+)
 
 __all__ = [
     "UserBase",
@@ -80,5 +93,16 @@ __all__ = [
     "JobStatusUpdate",
     "JobMetricsUpdate",
     "JobListResponse",
+    "WorkerCapabilities",
+    "WorkerRegister",
+    "WorkerUpdate",
+    "WorkerResponse",
+    "WorkerDetailResponse",
+    "WorkerHeartbeat",
+    "HeartbeatResponse",
+    "WorkerAssignment",
+    "WorkerStats",
+    "WorkerBatchUpdate",
+    "WorkerListResponse",
 ]
 
