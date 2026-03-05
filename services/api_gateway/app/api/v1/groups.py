@@ -12,8 +12,9 @@ from app.core.exceptions import (
     ConflictError,
     ValidationError,
 )
-from app.dependencies import get_db
+from app.dependencies import get_db, get_current_user
 from app.models.group import GroupRole, InvitationStatus, MemberStatus
+from app.models.user import User
 from app.schemas.group import (
     GroupCreate,
     GroupUpdate,
@@ -38,21 +39,6 @@ from app.crud import group as group_crud
 router = APIRouter(prefix="/groups", tags=["groups"])
 
 
-# Temporary mock for current user - will be replaced with real auth in TASK-3.5
-async def get_current_user_temp():
-    """Temporary mock user - REMOVE THIS when auth is implemented."""
-    from app.models.user import User
-    from uuid import uuid4
-    
-    user = User(
-        id=uuid4(),
-        email="test@example.com",
-        username="testuser",
-        password_hash="mock",
-    )
-    return user
-
-
 # ============================================================================
 # Group Management Endpoints
 # ============================================================================
@@ -67,7 +53,7 @@ async def get_current_user_temp():
 async def create_group(
     group_data: GroupCreate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Create a new group."""
     group = group_crud.create_group(db, group_data, current_user.id)
@@ -85,7 +71,7 @@ async def list_groups(
     limit: int = Query(100, ge=1, le=500, description="Maximum records to return"),
     include_inactive: bool = Query(False, description="Include inactive groups"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """List all groups for current user."""
     groups, total = group_crud.get_user_groups(
@@ -113,7 +99,7 @@ async def list_groups(
 async def get_group(
     group_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Get group by ID."""
     # Check if user is a member
@@ -144,7 +130,7 @@ async def update_group(
     group_id: UUID,
     group_data: GroupUpdate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Update group information."""
     # Check if user has admin permission
@@ -167,7 +153,7 @@ async def update_group(
 async def delete_group(
     group_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Delete a group (soft delete)."""
     # Check if user is the owner
@@ -197,7 +183,7 @@ async def list_members(
     limit: int = Query(100, ge=1, le=500),
     status: Optional[MemberStatus] = Query(None, description="Filter by member status"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """List all members of a group."""
     # Check if user is a member
@@ -231,7 +217,7 @@ async def update_member_role(
     user_id: UUID,
     role_data: GroupMemberUpdateRole,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Update a member's role in the group."""
     # Check if user has admin permission
@@ -265,7 +251,7 @@ async def remove_member(
     group_id: UUID,
     user_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Remove a member from the group."""
     # Check permissions: admins can remove anyone, users can remove themselves
@@ -301,7 +287,7 @@ async def create_invitation(
     group_id: UUID,
     invitation_data: InvitationCreate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Create a new group invitation."""
     # Check if user has admin permission
@@ -338,7 +324,7 @@ async def list_invitations(
     limit: int = Query(100, ge=1, le=500),
     status: Optional[InvitationStatus] = Query(None, description="Filter by invitation status"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """List all invitations for a group."""
     # Check if user has admin permission
@@ -370,7 +356,7 @@ async def list_invitations(
 async def accept_invitation(
     request: InvitationAcceptRequest,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Accept a group invitation."""
     # TODO: Verify invitation email matches current user email
@@ -411,7 +397,7 @@ async def decline_invitation(
 async def cancel_invitation(
     invitation_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Cancel a pending invitation."""
     # TODO: Check if user is the inviter or an admin

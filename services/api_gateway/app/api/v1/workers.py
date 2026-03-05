@@ -13,8 +13,9 @@ from app.core.exceptions import (
     ConflictError,
     ValidationError,
 )
-from app.dependencies import get_db
+from app.dependencies import get_db, get_current_user
 from app.models.worker import WorkerStatus
+from app.models.user import User
 from app.schemas.worker import (
     WorkerRegister,
     WorkerUpdate,
@@ -35,21 +36,6 @@ from app.crud import worker as worker_crud
 router = APIRouter(prefix="/workers", tags=["workers"])
 
 
-# Temporary mock for current user - will be replaced with real auth in TASK-3.5
-async def get_current_user_temp():
-    """Temporary mock user - REMOVE THIS when auth is implemented."""
-    from app.models.user import User
-    from uuid import uuid4
-    
-    user = User(
-        id=uuid4(),
-        email="test@example.com",
-        username="testuser",
-        password_hash="mock",
-    )
-    return user
-
-
 # ============================================================================
 # Worker Registration & Management Endpoints
 # ============================================================================
@@ -64,7 +50,7 @@ async def get_current_user_temp():
 async def register_worker(
     worker_data: WorkerRegister,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Register a new worker."""
     # Check if worker ID already exists
@@ -88,7 +74,7 @@ async def list_user_workers(
     limit: int = Query(100, ge=1, le=500, description="Maximum records to return"),
     status: Optional[WorkerStatus] = Query(None, description="Filter by worker status"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """List all workers for current user."""
     workers, total = worker_crud.get_user_workers(
@@ -118,7 +104,7 @@ async def list_available_workers(
     limit: int = Query(100, ge=1, le=500),
     worker_type: Optional[str] = Query(None, description="Filter by worker type"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """List all available workers."""
     # TODO: In production, this should be restricted to orchestrator/admin
@@ -146,7 +132,7 @@ async def list_available_workers(
 async def get_worker(
     worker_id: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Get worker by ID."""
     worker = worker_crud.get_worker_with_user(db, worker_id)
@@ -174,7 +160,7 @@ async def update_worker(
     worker_id: str,
     worker_data: WorkerUpdate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Update worker information."""
     worker = worker_crud.get_worker(db, worker_id)
@@ -201,7 +187,7 @@ async def update_worker(
 async def delete_worker(
     worker_id: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Delete a worker."""
     worker = worker_crud.get_worker(db, worker_id)
@@ -233,7 +219,7 @@ async def worker_heartbeat(
     worker_id: str,
     heartbeat: WorkerHeartbeat,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Process worker heartbeat."""
     worker = worker_crud.get_worker(db, worker_id)
@@ -272,7 +258,7 @@ async def worker_heartbeat(
 async def set_worker_offline(
     worker_id: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Set worker to offline."""
     worker = worker_crud.get_worker(db, worker_id)
@@ -299,7 +285,7 @@ async def set_worker_offline(
 async def set_worker_draining(
     worker_id: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Set worker to draining."""
     worker = worker_crud.get_worker(db, worker_id)
@@ -331,7 +317,7 @@ async def complete_batch(
     worker_id: str,
     batch_update: WorkerBatchUpdate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Worker reports batch completion."""
     worker = worker_crud.get_worker(db, worker_id)

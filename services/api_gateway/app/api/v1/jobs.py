@@ -11,9 +11,10 @@ from app.core.exceptions import (
     AuthorizationError,
     ValidationError,
 )
-from app.dependencies import get_db
+from app.dependencies import get_db, get_current_user
 from app.models.job import JobStatus
 from app.models.group import GroupRole
+from app.models.user import User
 from app.schemas.job import (
     JobCreate,
     JobUpdate,
@@ -33,21 +34,6 @@ from app.crud import job as job_crud, group as group_crud
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
-# Temporary mock for current user - will be replaced with real auth in TASK-3.5
-async def get_current_user_temp():
-    """Temporary mock user - REMOVE THIS when auth is implemented."""
-    from app.models.user import User
-    from uuid import uuid4
-    
-    user = User(
-        id=uuid4(),
-        email="test@example.com",
-        username="testuser",
-        password_hash="mock",
-    )
-    return user
-
-
 # ============================================================================
 # Job Management Endpoints
 # ============================================================================
@@ -62,7 +48,7 @@ async def get_current_user_temp():
 async def create_job(
     job_data: JobCreate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Create a new training job."""
     # Check if user is a member of the group
@@ -85,7 +71,7 @@ async def list_user_jobs(
     limit: int = Query(100, ge=1, le=500, description="Maximum records to return"),
     status: Optional[JobStatus] = Query(None, description="Filter by job status"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """List all jobs created by current user."""
     jobs, total = job_crud.get_user_jobs(
@@ -116,7 +102,7 @@ async def list_group_jobs(
     limit: int = Query(100, ge=1, le=500),
     status: Optional[JobStatus] = Query(None, description="Filter by job status"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """List all jobs for a group."""
     # Check if user is a member of the group
@@ -148,7 +134,7 @@ async def list_group_jobs(
 async def get_job(
     job_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Get job by ID."""
     job = job_crud.get_job_with_relations(db, job_id)
@@ -183,7 +169,7 @@ async def update_job(
     job_id: UUID,
     job_data: JobUpdate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Update job information."""
     job = job_crud.get_job(db, job_id)
@@ -210,7 +196,7 @@ async def update_job(
 async def delete_job(
     job_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Delete a job."""
     job = job_crud.get_job(db, job_id)
@@ -244,7 +230,7 @@ async def delete_job(
 async def start_job(
     job_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Start a job."""
     job = job_crud.get_job(db, job_id)
@@ -274,7 +260,7 @@ async def start_job(
 async def pause_job(
     job_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Pause a running job."""
     job = job_crud.get_job(db, job_id)
@@ -304,7 +290,7 @@ async def pause_job(
 async def resume_job(
     job_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Resume a paused job."""
     job = job_crud.get_job(db, job_id)
@@ -334,7 +320,7 @@ async def resume_job(
 async def cancel_job(
     job_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Cancel a job."""
     job = job_crud.get_job(db, job_id)
@@ -367,7 +353,7 @@ async def cancel_job(
 async def get_job_progress(
     job_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Get job progress."""
     job = job_crud.get_job(db, job_id)
@@ -404,7 +390,7 @@ async def get_job_progress(
 async def get_job_metrics(
     job_id: UUID,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Get job metrics."""
     job = job_crud.get_job(db, job_id)
@@ -437,7 +423,7 @@ async def update_job_metrics(
     job_id: UUID,
     metrics: JobMetricsUpdate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user_temp),
+    current_user = Depends(get_current_user),
 ):
     """Update job metrics (used by workers)."""
     job = job_crud.get_job(db, job_id)
