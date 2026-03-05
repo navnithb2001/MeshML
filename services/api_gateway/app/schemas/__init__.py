@@ -30,6 +30,18 @@ from app.schemas.group import (
     MemberListResponse,
     InvitationListResponse,
 )
+from app.schemas.job import (
+    JobConfig,
+    JobMetrics,
+    JobProgress,
+    JobCreate,
+    JobUpdate,
+    JobResponse,
+    JobDetailResponse,
+    JobStatusUpdate,
+    JobMetricsUpdate,
+    JobListResponse,
+)
 
 __all__ = [
     "UserBase",
@@ -58,5 +70,15 @@ __all__ = [
     "GroupListResponse",
     "MemberListResponse",
     "InvitationListResponse",
+    "JobConfig",
+    "JobMetrics",
+    "JobProgress",
+    "JobCreate",
+    "JobUpdate",
+    "JobResponse",
+    "JobDetailResponse",
+    "JobStatusUpdate",
+    "JobMetricsUpdate",
+    "JobListResponse",
 ]
 
