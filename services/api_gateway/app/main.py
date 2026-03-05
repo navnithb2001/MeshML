@@ -144,13 +144,14 @@ async def health_check():
 
 
 # Import and include routers
-from app.api.v1 import system, auth, groups, jobs, workers
+from app.api.v1 import system, auth, groups, jobs, workers, monitoring
 
 app.include_router(system.router, prefix=settings.API_V1_PREFIX, tags=["System"])
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(groups.router, prefix=settings.API_V1_PREFIX)
 app.include_router(jobs.router, prefix=settings.API_V1_PREFIX)
 app.include_router(workers.router, prefix=settings.API_V1_PREFIX)
+app.include_router(monitoring.router, prefix=settings.API_V1_PREFIX)
 
 # Additional routers will be added in subsequent tasks:
 # from app.api.v1 import users, models
