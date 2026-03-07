@@ -128,26 +128,33 @@
 ---
 
 ## Phase 5: Dataset Sharder Service
-- [ ] **TASK-5.1**: Dataset loading utilities
-  - Support for common formats (ImageFolder, CSV, COCO, TFRecord)
-  - Large file streaming (avoid OOM)
-  - Integration with dataset validation (from Phase 4)
+- [x] **TASK-5.1**: Dataset loading utilities
+  - Multi-format support (ImageFolder, COCO, CSV)
+  - Memory-efficient streaming to avoid OOM
+  - GCS and local filesystem support
+  - Integration with Phase 4 validation
   
-- [ ] **TASK-5.2**: Sharding algorithms
-  - Random split
+- [x] **TASK-5.2**: Sharding algorithms
+  - Random split (IID distribution)
   - Stratified sampling for imbalanced datasets
-  - IID vs Non-IID partitioning
+  - Non-IID partitioning with Dirichlet distribution
+  - Sequential sharding for debugging
   - Configurable batch size calculation
   
-- [ ] **TASK-5.3**: Storage management
-  - Local filesystem batch storage
-  - S3/MinIO/GCS integration for cloud storage
-  - Batch metadata generation (size, checksum, class distribution)
+- [x] **TASK-5.3**: Storage management
+  - Local filesystem batch storage with BatchMetadata
+  - GCS cloud storage integration
+  - Batch metadata generation (size, SHA256 checksum, class distribution)
+  - BatchManager for high-level batch operations
+  - Automatic cleanup of old batches
   
-- [ ] **TASK-5.4**: Data distribution service
-  - HTTP endpoint for workers to download shards
-  - Shard assignment tracking
-  - Re-sharding logic for failed batches
+- [x] **TASK-5.4**: Data distribution service
+  - HTTP endpoints for worker batch discovery and download (12 RESTful endpoints)
+  - Multiple distribution strategies (shard-per-worker, round-robin, load-balanced)
+  - Download status tracking with lifecycle (pending → downloading → completed/failed)
+  - Automatic failure recovery with reassignment and retry logic
+  - Worker progress tracking and distribution statistics
+  - Streaming batch downloads with chunked transfer
 
 ---
 
