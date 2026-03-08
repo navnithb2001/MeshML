@@ -309,32 +309,67 @@
 ---
 
 ## Phase 8: Python Worker (PyTorch)
-- [ ] **TASK-8.1**: Worker setup script
-  - CLI tool for worker initialization (`meshml-worker init`)
-  - Dependency installation (PyTorch, gRPC)
-  - Configuration file generation (.meshml/config.yaml)
+- [x] **TASK-8.1**: Worker setup script
+  - CLI tool with 4 commands (init, train, status, config)
+  - Complete configuration management with Pydantic validation
+  - Automatic worker ID generation
+  - Device detection (CUDA/MPS/CPU)
+  - Checkpoint management system
+  - Training logger with colored output
+  - Storage directory management
+  - Poetry-based dependency management
+  - 40+ tests covering setup, config, device, checkpoints, logging
   
-- [ ] **TASK-8.2**: Custom model loading
-  - Download custom model.py from GCS
-  - Dynamic import of create_model() and create_dataloader()
-  - Model instantiation with error handling
-  - Validate MODEL_METADATA
+- [x] **TASK-8.2**: Custom model loading
+  - Dynamic model loading from multiple sources (HTTP/HTTPS, GCS, local files)
+  - MODEL_METADATA validation (required fields: name, version, framework, input/output shapes)
+  - Extract create_model() and create_dataloader() functions
+  - Module caching and cache management
+  - Data shard downloading (HTTP/HTTPS, GCS)
+  - Progress tracking for downloads
+  - Example model with SimpleCNN for MNIST
+  - 50+ tests covering metadata, loading, downloads, error handling
   
-- [ ] **TASK-8.3**: gRPC client implementation
-  - Connect to Parameter Server
-  - Heartbeat sender
-  - Gradient push/parameter pull
+- [x] **TASK-8.3**: gRPC client implementation
+  - Complete gRPC client for Parameter Server communication
+  - Connect/disconnect with connection management
+  - Get weights with compression support (gzip)
+  - Push gradients with metadata (loss, gradient_norm, layer_norms)
+  - Model version tracking and synchronization
+  - Compression/decompression utilities
+  - Heartbeat sender with periodic status updates
+  - Worker status reporting (state, epoch, batch, metrics)
+  - Thread-safe heartbeat with retry logic
+  - Context manager support for both client and heartbeat
+  - 50+ tests covering connection, weights, gradients, compression, heartbeat
   
-- [ ] **TASK-8.4**: Training loop implementation
-  - Download data shard from Dataset Sharder
-  - Load dataset using create_dataloader()
-  - Local training on assigned data
-  - Gradient computation and upload
+- [x] **TASK-8.4**: Training loop implementation
+  - Complete PyTorch training loop with epoch and batch handling
+  - Data shard downloading and loading
+  - Dynamic model loading using create_model() and create_dataloader()
+  - Local training on assigned data with progress tracking (tqdm)
+  - Gradient computation and automatic upload to Parameter Server
+  - Mixed precision training support (FP16 with GradScaler)
+  - Gradient clipping with configurable max norm
+  - Gradient accumulation with configurable steps
+  - Checkpoint management (save/load/resume)
+  - Training logger with epoch and batch metrics
+  - Heartbeat integration with status updates
+  - Fetch initial weights from Parameter Server
+  - Push gradients with metadata (loss, gradient_norm)
+  - 50+ tests covering initialization, training, checkpoints, heartbeat
   
-- [ ] **TASK-8.5**: Device optimization
-  - Auto-detect CUDA/Metal/CPU
-  - Mixed precision training (FP16)
-  - Memory-efficient DataLoader
+- [x] **TASK-8.5**: Device optimization ✅
+  - MemoryProfiler for tracking memory usage during training
+  - PerformanceBenchmark for measuring throughput and latency
+  - OptimizedDataLoader with automatic pin_memory, num_workers tuning
+  - optimize_dataloader_settings() function for device-specific optimization
+  - benchmark_device_performance() for device benchmarking
+  - Memory profiling integrated into Trainer (profiles every 10th batch)
+  - Performance benchmarking integrated into Trainer (per-epoch summaries)
+  - Support for CUDA, MPS, and CPU devices
+  - 42 tests (21 passing without PyTorch, all pass with PyTorch installed)
+  - ~1,135 lines total implementation + tests
   
 - [ ] **TASK-8.6**: Error handling & recovery
   - Checkpoint saving/loading
