@@ -13,10 +13,56 @@ import logging
 import time
 import gzip
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, Callable
+from functools import wraps
 import pickle
 
 logger = logging.getLogger(__name__)
+
+
+def retry_on_failure(max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
+    """Decorator to retry function on failure with exponential backoff
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        delay: Initial delay between retries in seconds
+        backoff: Backoff multiplier for exponential delay
+        
+    Example:
+        @retry_on_failure(max_retries=3, delay=1.0, backoff=2.0)
+        def push_gradients(...):
+            ...
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            current_delay = delay
+            
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            f"{func.__name__} failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                            f"Retrying in {current_delay:.1f}s..."
+                        )
+                        time.sleep(current_delay)
+                        current_delay *= backoff
+                    else:
+                        logger.error(
+                            f"{func.__name__} failed after {max_retries} attempts: {e}"
+                        )
+            
+            # If all retries failed, raise the last exception
+            raise RuntimeError(
+                f"{func.__name__} failed after {max_retries} retries"
+            ) from last_exception
+        
+        return wrapper
+    return decorator
 
 
 class GRPCClient:
@@ -28,7 +74,7 @@ class GRPCClient:
     - Push gradients
     - Version tracking
     - Compression support
-    - Retry logic
+    - Retry logic with exponential backoff
     - Connection health checking
     """
     
@@ -44,7 +90,12 @@ class GRPCClient:
         self.connected = False
         self.current_version = 0
         
+        # Retry configuration
+        self.max_retries = getattr(config, 'max_retries', 3)
+        self.retry_delay = getattr(config, 'retry_delay', 1.0)
+        
         logger.info(f"Initialized gRPC client for {config.grpc_url}")
+
     
     def connect(self) -> None:
         """Connect to Parameter Server
@@ -96,6 +147,7 @@ class GRPCClient:
             self.connected = False
             logger.info("Disconnected from Parameter Server")
     
+    @retry_on_failure(max_retries=3, delay=1.0, backoff=2.0)
     def get_weights(
         self,
         job_id: str,
@@ -103,6 +155,8 @@ class GRPCClient:
         epoch: int = 0
     ) -> Tuple[Dict[str, Any], int]:
         """Fetch current model weights from Parameter Server
+        
+        Retries automatically on failure with exponential backoff.
         
         Args:
             job_id: Job identifier
@@ -113,7 +167,7 @@ class GRPCClient:
             Tuple of (model_state_dict, version)
             
         Raises:
-            RuntimeError: If not connected or request fails
+            RuntimeError: If not connected or request fails after retries
         """
         if not self.connected:
             raise RuntimeError("Not connected to Parameter Server")
@@ -154,6 +208,7 @@ class GRPCClient:
             logger.error(f"Failed to get weights: {e}")
             raise RuntimeError(f"Get weights failed: {e}")
     
+    @retry_on_failure(max_retries=3, delay=1.0, backoff=2.0)
     def push_gradients(
         self,
         job_id: str,
@@ -166,6 +221,8 @@ class GRPCClient:
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Push computed gradients to Parameter Server
+        
+        Retries automatically on failure with exponential backoff.
         
         Args:
             job_id: Job identifier
@@ -181,7 +238,7 @@ class GRPCClient:
             Acknowledgment response
             
         Raises:
-            RuntimeError: If not connected or push fails
+            RuntimeError: If not connected or push fails after retries
         """
         if not self.connected:
             raise RuntimeError("Not connected to Parameter Server")
