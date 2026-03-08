@@ -1,0 +1,51 @@
+"""
+Configuration settings for Model Registry Service
+"""
+
+from pydantic_settings import BaseSettings
+from typing import Optional
+
+
+class Settings(BaseSettings):
+    """Application settings"""
+    
+    # Service
+    SERVICE_NAME: str = "model-registry"
+    DEBUG: bool = True
+    
+    # Database
+    DATABASE_URL: str = "postgresql+asyncpg://meshml:meshml_password@localhost:5432/meshml"
+    
+    # GCS Storage
+    GCS_BUCKET_NAME: str = "meshml-models"
+    GCS_PROJECT_ID: Optional[str] = None
+    GCS_CREDENTIALS_PATH: Optional[str] = None
+    
+    # Model Storage Structure
+    MODEL_STORAGE_PREFIX: str = "models"  # models/{model_id}/model.py
+    
+    # Model Validation
+    MAX_MODEL_SIZE_MB: int = 100  # Max model file size
+    ALLOWED_FILE_EXTENSIONS: list = [".py"]
+    
+    # Model States
+    MODEL_STATE_UPLOADING: str = "uploading"
+    MODEL_STATE_VALIDATING: str = "validating"
+    MODEL_STATE_READY: str = "ready"
+    MODEL_STATE_FAILED: str = "failed"
+    MODEL_STATE_DEPRECATED: str = "deprecated"
+    
+    # Search & Discovery
+    DEFAULT_PAGE_SIZE: int = 20
+    MAX_PAGE_SIZE: int = 100
+    
+    # Versioning
+    ENABLE_MODEL_VERSIONING: bool = True
+    MAX_VERSION_HISTORY: int = 10  # Keep last 10 versions
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+
+
+settings = Settings()
