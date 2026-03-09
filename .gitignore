@@ -150,3 +150,22 @@ proto/generated/
 # Monitoring data
 monitoring/prometheus/data/
 monitoring/grafana/data/
+
+# Virtual environments
+mesh.venv/
+
+# C++ build artifacts
+workers/cpp-worker/build/
+workers/cpp-worker/libtorch/
+workers/cpp-worker/*.so
+workers/cpp-worker/*.dylib
+workers/cpp-worker/*.a
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
