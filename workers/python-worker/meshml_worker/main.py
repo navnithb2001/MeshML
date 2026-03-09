@@ -182,3 +182,44 @@ class MeshMLWorker:
             # Don't mark as invalid - server might not be running yet
         
         return results
+
+
+if __name__ == "__main__":
+    """Entry point for running worker directly."""
+    import asyncio
+    import sys
+    import os
+    from meshml_worker.config import WorkerConfig, WorkerIdentityConfig, ParameterServerConfig
+    
+    # Create configuration from environment variables
+    config = WorkerConfig(
+        worker=WorkerIdentityConfig(
+            id=os.getenv("WORKER_ID", "python-worker-1"),
+            name=os.getenv("WORKER_NAME", "MeshML Python Worker"),
+        ),
+        parameter_server=ParameterServerConfig(
+            url=os.getenv("PARAMETER_SERVER_URL", "http://parameter-server:8003"),
+            grpc_url=os.getenv("ORCHESTRATOR_URL", "task-orchestrator:50051"),
+        ),
+    )
+    
+    # Create worker
+    worker = MeshMLWorker(config)
+    logger.info(f"Worker initialized: {config.worker.id}")
+    
+    # Validate setup
+    validation = worker.validate_setup()
+    logger.info(f"Setup validation: {validation}")
+    
+    # Keep worker running
+    try:
+        logger.info(f"Worker {config.worker.id} is ready and waiting for tasks...")
+        # Keep the process alive indefinitely
+        while True:
+            asyncio.run(asyncio.sleep(3600))  # Sleep for 1 hour at a time
+    except KeyboardInterrupt:
+        logger.info("Worker stopped by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Worker failed: {e}", exc_info=True)
+        sys.exit(1)

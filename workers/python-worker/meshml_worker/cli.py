@@ -14,7 +14,7 @@ from typing import Optional
 import click
 
 from meshml_worker.config import WorkerConfig, load_config
-from meshml_worker.worker import MeshMLWorker
+from meshml_worker.main import MeshMLWorker
 
 
 @click.group()

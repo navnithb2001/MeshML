@@ -8,7 +8,7 @@ __version__ = "0.1.0"
 __author__ = "MeshML Team"
 
 from meshml_worker.config import WorkerConfig
-from meshml_worker.worker import MeshMLWorker
+from meshml_worker.main import MeshMLWorker
 from meshml_worker.utils.optimization import (
     MemoryProfiler,
     PerformanceBenchmark,

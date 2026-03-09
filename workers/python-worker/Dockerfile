@@ -31,5 +31,5 @@ RUN useradd -m -u 1000 meshml && \
 
 USER meshml
 
-# Run worker
-CMD ["python", "-m", "meshml_worker.worker"]
+# Run worker directly
+CMD ["python", "meshml_worker/main.py"]
