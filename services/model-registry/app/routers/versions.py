@@ -5,6 +5,7 @@ Versions router - Model versioning management
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
+from uuid import UUID
 
 from ..database import get_db_session
 from ..models import Model
@@ -14,6 +15,9 @@ import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Test user UUID (in production, this would come from authentication)
+TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 @router.post("/", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
@@ -32,7 +36,7 @@ async def create_model_version(
             parent_model_id=version_data.parent_model_id,
             name=version_data.name,
             version=version_data.version,
-            created_by_user_id=1,  # TODO: Get from auth context
+            created_by_user_id=TEST_USER_ID,  # Using test user UUID
             description=version_data.description,
             metadata=version_data.metadata
         )

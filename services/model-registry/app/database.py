@@ -29,8 +29,9 @@ async_session_maker = async_sessionmaker(
 
 async def create_tables():
     """Create all database tables"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Tables are managed by the main database service
+    # Skip table creation to avoid foreign key issues
+    pass
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:

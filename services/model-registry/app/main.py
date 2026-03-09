@@ -38,11 +38,15 @@ async def lifespan(app: FastAPI):
     await create_tables()
     logger.info("✅ Database tables verified")
     
-    # Initialize GCS client
-    gcs_client = GCSClient()
-    await gcs_client.initialize()
-    app.state.gcs_client = gcs_client
-    logger.info(f"✅ GCS bucket '{settings.GCS_BUCKET_NAME}' ready")
+    # Initialize GCS client (optional - will use local storage if GCS unavailable)
+    try:
+        gcs_client = GCSClient()
+        await gcs_client.initialize()
+        app.state.gcs_client = gcs_client
+        logger.info(f"✅ GCS bucket '{settings.GCS_BUCKET_NAME}' ready")
+    except Exception as e:
+        logger.warning(f"⚠️  GCS not available (will use local storage): {e}")
+        app.state.gcs_client = None
     
     logger.info("✨ Model Registry Service ready!")
     

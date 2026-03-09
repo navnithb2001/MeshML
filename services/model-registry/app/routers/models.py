@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from typing import Optional
+from uuid import UUID
 import logging
 
 from ..database import get_db_session
@@ -22,6 +23,9 @@ from ..config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Test user UUID (in production, this would come from authentication)
+TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 def get_gcs_client(request: Request) -> GCSClient:
@@ -43,10 +47,10 @@ async def create_model(
         name=model_data.name,
         description=model_data.description,
         group_id=model_data.group_id,
-        created_by_user_id=1,  # TODO: Get from auth context
+        created_by_user_id=TEST_USER_ID,  # Using test user UUID
         architecture_type=model_data.architecture_type,
         dataset_type=model_data.dataset_type,
-        metadata=model_data.metadata,
+        model_metadata=model_data.metadata,
         version=model_data.version,
         parent_model_id=model_data.parent_model_id,
         state=ModelState.UPLOADING

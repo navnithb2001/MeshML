@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
+from uuid import UUID
 
 
 class ModelState(str, Enum):
@@ -32,7 +33,7 @@ class ModelCreate(BaseModel):
     """Schema for creating a new model"""
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
-    group_id: int = Field(..., gt=0)
+    group_id: UUID = Field(...)  # Changed to UUID
     architecture_type: Optional[str] = Field(None, max_length=100)
     dataset_type: Optional[str] = Field(None, max_length=100)
     metadata: Optional[Dict[str, Any]] = None
@@ -60,8 +61,8 @@ class ModelResponse(BaseModel):
     id: int
     name: str
     description: Optional[str]
-    group_id: int
-    created_by_user_id: int
+    group_id: UUID  # Changed to UUID
+    created_by_user_id: UUID  # Changed to UUID
     gcs_path: Optional[str]
     file_size_bytes: Optional[int]
     file_hash: Optional[str]
@@ -70,7 +71,7 @@ class ModelResponse(BaseModel):
     architecture_type: Optional[str]
     dataset_type: Optional[str]
     framework: str
-    metadata: Optional[Dict[str, Any]]
+    model_metadata: Optional[Dict[str, Any]] = None  # Made optional with default
     version: str
     parent_model_id: Optional[int]
     created_at: datetime
@@ -96,11 +97,11 @@ class ModelListResponse(BaseModel):
 class ModelSearchQuery(BaseModel):
     """Schema for model search"""
     query: Optional[str] = None  # Search in name, description
-    group_id: Optional[int] = None
+    group_id: Optional[UUID] = None  # Changed to UUID
     state: Optional[ModelState] = None
     architecture_type: Optional[str] = None
     dataset_type: Optional[str] = None
-    created_by_user_id: Optional[int] = None
+    created_by_user_id: Optional[UUID] = None  # Changed to UUID
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
 

@@ -20,6 +20,10 @@ test: ## Run all tests
 		fi \
 	done
 
+test-integration: ## Run integration tests
+	@echo "🧪 Running integration tests..."
+	@./tests/integration/test_e2e.sh
+
 lint: ## Run all linters
 	@echo "Running linters..."
 	pre-commit run --all-files
@@ -28,6 +32,42 @@ format: ## Format all code
 	@echo "Formatting Python..."
 	black services/ shared/
 	isort services/ shared/
+
+# Docker Commands
+docker-build: ## Build all Docker images
+	@echo "🔨 Building Docker images..."
+	docker-compose build
+
+docker-up: ## Start all services with Docker
+	@echo "🚀 Starting MeshML services..."
+	docker-compose up -d
+	@echo "✅ Services started! Run 'make docker-status' to check health"
+
+docker-down: ## Stop all Docker services
+	@echo "🛑 Stopping services..."
+	docker-compose down
+
+docker-restart: ## Restart all Docker services
+	docker-compose restart
+
+docker-status: ## Check Docker service status
+	@echo "📊 Service Status:"
+	@docker-compose ps
+
+docker-logs: ## View logs from all services
+	docker-compose logs -f
+
+docker-health: ## Check health of all services
+	@echo "🏥 Health Check Results:"
+	@echo "API Gateway:        $$(curl -s http://localhost:8000/health 2>/dev/null | jq -r '.status' || echo 'DOWN')"
+	@echo "Model Registry:     $$(curl -s http://localhost:8004/health 2>/dev/null | jq -r '.status' || echo 'DOWN')"
+	@echo "Dataset Sharder:    $$(curl -s http://localhost:8001/health 2>/dev/null | jq -r '.status' || echo 'DOWN')"
+	@echo "Task Orchestrator:  $$(curl -s http://localhost:8002/health 2>/dev/null | jq -r '.status' || echo 'DOWN')"
+	@echo "Parameter Server:   $$(curl -s http://localhost:8003/health 2>/dev/null | jq -r '.status' || echo 'DOWN')"
+
+docker-clean: ## Remove all containers and volumes
+	@echo "🧹 Cleaning up Docker..."
+	docker-compose down -v --rmi all
 	@echo "Formatting JavaScript..."
 	cd dashboard && npm run format
 	cd workers/js-worker && npm run format

@@ -5,7 +5,7 @@ Provides HTTP endpoints for job submission, status tracking, assignment,
 and management. Integrates with job queue service and worker registry.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Body
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -501,7 +501,7 @@ async def update_job_progress(
 async def complete_job(
     job_id: str,
     result_path: str = Query(..., description="GCS path to trained model"),
-    metrics_summary: Dict[str, Any] = Query(default_factory=dict, description="Final metrics"),
+    metrics_summary: Dict[str, Any] = Body(default_factory=dict, description="Final metrics"),
     queue: JobQueue = Depends(get_job_queue)
 ):
     """Mark job as completed (called by workers)"""

@@ -1,0 +1,300 @@
+# MeshML Platform - Docker Compose Configuration
+# Complete distributed ML training system
+
+version: '3.8'
+
+services:
+  # ============================================================================
+  # Infrastructure Services
+  # ============================================================================
+  
+  postgres:
+    image: postgres:15-alpine
+    container_name: meshml-postgres
+    environment:
+      POSTGRES_DB: meshml
+      POSTGRES_USER: meshml
+      POSTGRES_PASSWORD: meshml_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meshml"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - meshml-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: meshml-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - meshml-network
+
+  # ============================================================================
+  # Core Services
+  # ============================================================================
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: meshml-api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: your-secret-key-change-in-production
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - meshml-network
+    restart: unless-stopped
+
+  model-registry:
+    build:
+      context: ./services/model-registry
+      dockerfile: Dockerfile
+    container_name: meshml-model-registry
+    ports:
+      - "8004:8004"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
+      GCS_BUCKET_NAME: meshml-models-local
+      # For local testing without GCS
+      USE_LOCAL_STORAGE: "true"
+      LOCAL_STORAGE_PATH: /app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - model_storage:/app/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - meshml-network
+    restart: unless-stopped
+
+  dataset-sharder:
+    build:
+      context: ./services/dataset-sharder
+      dockerfile: Dockerfile
+    container_name: meshml-dataset-sharder
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
+      REDIS_URL: redis://redis:6379/1
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_PATH: /app/datasets
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - dataset_storage:/app/datasets
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - meshml-network
+    restart: unless-stopped
+
+  task-orchestrator:
+    build:
+      context: ./services/task-orchestrator
+      dockerfile: Dockerfile
+    container_name: meshml-task-orchestrator
+    ports:
+      - "8002:8002"
+      - "50051:50051"  # gRPC port
+    environment:
+      DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
+      REDIS_URL: redis://redis:6379/2
+      PARAMETER_SERVER_URL: parameter-server:8003
+      DATASET_SHARDER_URL: dataset-sharder:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - meshml-network
+    restart: unless-stopped
+
+  parameter-server:
+    build:
+      context: ./services/parameter-server
+      dockerfile: Dockerfile
+    container_name: meshml-parameter-server
+    ports:
+      - "8003:8003"
+      - "50052:50052"  # gRPC port
+    environment:
+      DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
+      REDIS_URL: redis://redis:6379/3
+      AGGREGATION_STRATEGY: fedavg
+      SYNC_MODE: async
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - meshml-network
+    restart: unless-stopped
+
+  # ============================================================================
+  # Workers
+  # ============================================================================
+
+  python-worker-1:
+    build:
+      context: ./workers/python-worker
+      dockerfile: Dockerfile
+    container_name: meshml-python-worker-1
+    environment:
+      WORKER_ID: python-worker-1
+      ORCHESTRATOR_URL: task-orchestrator:50051
+      PARAMETER_SERVER_URL: parameter-server:50052
+      DEVICE: cpu
+      MAX_CONCURRENT_JOBS: 2
+    depends_on:
+      - task-orchestrator
+      - parameter-server
+    networks:
+      - meshml-network
+    restart: unless-stopped
+    # Uncomment for GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  python-worker-2:
+    build:
+      context: ./workers/python-worker
+      dockerfile: Dockerfile
+    container_name: meshml-python-worker-2
+    environment:
+      WORKER_ID: python-worker-2
+      ORCHESTRATOR_URL: task-orchestrator:50051
+      PARAMETER_SERVER_URL: parameter-server:50052
+      DEVICE: cpu
+      MAX_CONCURRENT_JOBS: 2
+    depends_on:
+      - task-orchestrator
+      - parameter-server
+    networks:
+      - meshml-network
+    restart: unless-stopped
+
+  # ============================================================================
+  # Monitoring & Observability (Optional)
+  # ============================================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: meshml-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - meshml-network
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: meshml-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    networks:
+      - meshml-network
+    profiles:
+      - monitoring
+
+# ============================================================================
+# Networks
+# ============================================================================
+
+networks:
+  meshml-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ============================================================================
+# Volumes
+# ============================================================================
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  model_storage:
+    driver: local
+  dataset_storage:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local

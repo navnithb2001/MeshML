@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from typing import Optional, List
 from datetime import datetime
+from uuid import UUID
 
 from ..models import Model, ModelState
 from ..schemas import ModelVersionCreate
@@ -26,7 +27,7 @@ class VersionManager:
         parent_model_id: int,
         name: str,
         version: str,
-        created_by_user_id: int,
+        created_by_user_id: UUID,  # Changed to UUID
         description: Optional[str] = None,
         metadata: Optional[dict] = None
     ) -> Model:
@@ -82,7 +83,7 @@ class VersionManager:
             architecture_type=parent.architecture_type,  # Inherit architecture
             dataset_type=parent.dataset_type,  # Inherit dataset type
             framework=parent.framework,
-            metadata=metadata or parent.metadata,
+            model_metadata=metadata or parent.model_metadata,
             version=version,
             parent_model_id=parent_model_id,
             state=ModelState.UPLOADING
