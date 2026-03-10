@@ -10,7 +10,7 @@ Endpoints:
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from typing import Dict, Any
 import logging
 
@@ -42,7 +42,7 @@ async def health_check(
     
     # Check database
     try:
-        await db.execute("SELECT 1")
+        await db.execute(text("SELECT 1"))
         health["components"]["database"] = "healthy"
     except Exception as e:
         logger.error(f"Database health check failed: {e}")

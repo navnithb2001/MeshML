@@ -22,6 +22,7 @@ protobuf==4.25.2
 # Authentication
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1  # Pin bcrypt version for compatibility with passlib
 python-multipart==0.0.9
 
 # HTTP Client

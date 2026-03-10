@@ -3,6 +3,7 @@ Group management endpoints
 
 Endpoints:
 - POST /api/groups - Create new group
+- GET /api/groups - List user's groups
 - GET /api/groups/public - List public groups
 - GET /api/groups/{group_id} - Get group details
 - POST /api/groups/{group_id}/join - Join public group
@@ -77,6 +78,50 @@ async def create_group(
     
     logger.info(f"Group created: {group.id}")
     return group
+
+
+@router.get("", response_model=dict)
+async def list_user_groups(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List all groups where the current user is a member
+    
+    Args:
+        current_user: Authenticated user
+        db: Database session
+        
+    Returns:
+        Dictionary with list of groups
+    """
+    # Get all group memberships for current user
+    result = await db.execute(
+        select(GroupMember)
+        .where(GroupMember.user_id == current_user.id)
+    )
+    memberships = result.scalars().all()
+    
+    # Fetch group details for each membership
+    groups_data = []
+    for membership in memberships:
+        group_result = await db.execute(
+            select(Group).where(Group.id == membership.group_id)
+        )
+        group = group_result.scalar_one_or_none()
+        
+        if group:
+            groups_data.append({
+                "id": str(group.id),
+                "name": group.name,
+                "description": group.description,
+                "is_public": group.is_public,
+                "role": membership.role,
+                "created_at": group.created_at.isoformat() if group.created_at else None
+            })
+    
+    logger.info(f"Retrieved {len(groups_data)} groups for user {current_user.id}")
+    return {"groups": groups_data}
 
 
 @router.get("/public", response_model=dict)

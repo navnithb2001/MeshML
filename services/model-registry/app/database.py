@@ -14,7 +14,8 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     poolclass=NullPool,  # Disable connection pooling for async
-    future=True
+    future=True,
+    connect_args={"ssl": False}  # Disable SSL for internal cluster communication
 )
 
 # Create session factory

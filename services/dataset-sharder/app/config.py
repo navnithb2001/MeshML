@@ -28,9 +28,14 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_DOWNLOADS: int = 10
     
     # Database (for batch metadata)
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL",
-        "postgresql+asyncpg://meshml:meshml_password@localhost:5432/meshml"
+    # Build DATABASE_URL from components if not explicitly provided
+    DATABASE_URL: str = os.getenv("DATABASE_URL") or (
+        f"postgresql+asyncpg://"
+        f"{os.getenv('POSTGRES_USER', 'meshml_user')}:"
+        f"{os.getenv('POSTGRES_PASSWORD', 'CHANGE_ME_IN_PRODUCTION')}@"
+        f"{os.getenv('POSTGRES_HOST', 'localhost')}:"
+        f"{os.getenv('POSTGRES_PORT', '5432')}/"
+        f"{os.getenv('POSTGRES_DB', 'meshml')}"
     )
     
     class Config:

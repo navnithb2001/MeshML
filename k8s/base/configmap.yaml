@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: meshml-config
+  namespace: meshml
+data:
+  # Database Configuration
+  POSTGRES_HOST: "postgres-service"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "meshml"
+  
+  # Redis Configuration
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  
+  # Service URLs
+  API_GATEWAY_URL: "http://api-gateway-service:8000"
+  DATASET_SHARDER_URL: "http://dataset-sharder-service:8001"
+  TASK_ORCHESTRATOR_URL: "http://task-orchestrator-service:8002"
+  PARAMETER_SERVER_URL: "http://parameter-server-service:8003"
+  MODEL_REGISTRY_URL: "http://model-registry-service:8004"
+  
+  # gRPC URLs
+  ORCHESTRATOR_GRPC_URL: "task-orchestrator-service:50051"
+  PARAMETER_SERVER_GRPC_URL: "parameter-server-service:50052"
+  
+  # Application Settings
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"

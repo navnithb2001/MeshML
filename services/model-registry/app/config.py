@@ -4,6 +4,7 @@ Configuration settings for Model Registry Service
 
 from pydantic_settings import BaseSettings
 from typing import Optional
+import os
 
 
 class Settings(BaseSettings):
@@ -14,7 +15,15 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://meshml:meshml_password@localhost:5432/meshml"
+    # Build DATABASE_URL from components if not provided
+    DATABASE_URL: str = os.getenv("DATABASE_URL") or (
+        f"postgresql+asyncpg://"
+        f"{os.getenv('POSTGRES_USER', 'meshml_user')}:"
+        f"{os.getenv('POSTGRES_PASSWORD', 'CHANGE_ME_IN_PRODUCTION')}@"
+        f"{os.getenv('POSTGRES_HOST', 'localhost')}:"
+        f"{os.getenv('POSTGRES_PORT', '5432')}/"
+        f"{os.getenv('POSTGRES_DB', 'meshml')}"
+    )
     
     # GCS Storage
     GCS_BUCKET_NAME: str = "meshml-models"

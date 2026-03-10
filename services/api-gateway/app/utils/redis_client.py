@@ -7,7 +7,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Redis URL from environment
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# Try to get REDIS_URL first, otherwise build from components
+REDIS_URL = os.getenv("REDIS_URL")
+
+if not REDIS_URL:
+    # Build from individual components
+    redis_password = os.getenv("REDIS_PASSWORD", "")
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    redis_port = os.getenv("REDIS_PORT", "6379")
+    
+    # Include password if provided (format: redis://:password@host:port/db)
+    if redis_password:
+        REDIS_URL = f"redis://:{redis_password}@{redis_host}:{redis_port}/0"
+    else:
+        REDIS_URL = f"redis://{redis_host}:{redis_port}/0"
+
+logger.info(f"Connecting to Redis at: {REDIS_URL.split('@')[1] if '@' in REDIS_URL else REDIS_URL}")
 
 # Global Redis client
 redis_client: redis.Redis = None
