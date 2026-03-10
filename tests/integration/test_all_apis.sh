@@ -21,7 +21,7 @@ skip_count=0
 echo ""
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║         MeshML Comprehensive API Test Suite                   ║"
-echo "║                 Testing ALL Endpoints                          ║"
+echo "║            Testing ALL 28 Endpoints (Complete)                ║"
 echo "╔════════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Target: $API_GATEWAY_URL"
@@ -100,7 +100,6 @@ echo ""
 
 test_endpoint "GET" "/api/groups/public" "List public groups"
 test_endpoint "GET" "/api/workers" "List all workers"
-test_endpoint "GET" "/api/jobs" "List all jobs"
 test_endpoint "GET" "/api/monitoring/health" "Monitoring health check"
 
 echo ""
@@ -124,19 +123,24 @@ echo ""
 echo -e "${YELLOW}Logging in with test user...${NC}"
 echo ""
 
-# Try to login and capture token
+# Test login endpoint explicitly
+test_endpoint "POST" "/api/auth/login" "Login user and get JWT token" \
+    "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASSWORD}\"}"
+
+# Also capture token for use in other tests
 LOGIN_RESPONSE=$(curl -s -X POST ${API_GATEWAY_URL}/api/auth/login \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASSWORD}\"}")
 
 if echo "$LOGIN_RESPONSE" | jq -e '.access_token' > /dev/null 2>&1; then
     TOKEN=$(echo $LOGIN_RESPONSE | jq -r '.access_token')
-    echo -e "${GREEN}✓ Login successful!${NC}"
+    REFRESH_TOKEN=$(echo $LOGIN_RESPONSE | jq -r '.refresh_token // empty')
+    echo -e "${GREEN}✓ Token captured for authenticated tests${NC}"
     echo "  Token: ${TOKEN:0:50}..."
     echo ""
     HAS_TOKEN=true
 else
-    echo -e "${RED}✗ Login failed!${NC}"
+    echo -e "${RED}✗ Failed to capture token!${NC}"
     echo "  Response: $LOGIN_RESPONSE"
     echo ""
     echo -e "${YELLOW}⚠️  Continuing tests without authentication token${NC}"
@@ -144,10 +148,14 @@ else
     echo ""
     HAS_TOKEN=false
     TOKEN=""
+    REFRESH_TOKEN=""
 fi
 
 if [ "$HAS_TOKEN" = true ]; then
     test_endpoint "GET" "/api/auth/me" "Get current user info" "" "$TOKEN"
+    
+    # Test token refresh - current implementation uses existing token to get new one
+    test_endpoint "POST" "/api/auth/refresh" "Refresh authentication token" "" "$TOKEN"
     
     # Note: Refresh token test would need the refresh_token from login response
     # test_endpoint "POST" "/api/auth/refresh" "Refresh authentication token"
@@ -178,18 +186,22 @@ if [ "$HAS_TOKEN" = true ]; then
         test_endpoint "GET" "/api/groups/${GROUP_ID}" "Get specific group details" "" "$TOKEN"
         test_endpoint "GET" "/api/groups/${GROUP_ID}/members" "Get group members" "" "$TOKEN"
         
-        # Test invitation creation
-        echo -e "${YELLOW}Creating invitation for group...${NC}"
+        # Test invitation creation explicitly
+        test_endpoint "POST" "/api/invitations/${GROUP_ID}/invitations" "Create group invitation" \
+            '{"max_uses":5,"expires_in_days":7}' "$TOKEN"
+        
+        # Also capture invitation code for later tests
         echo ""
+        echo -e "${YELLOW}Capturing invitation code for later tests...${NC}"
         
         INVITE_CREATE=$(curl -s -X POST ${API_GATEWAY_URL}/api/invitations/${GROUP_ID}/invitations \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
-            -d '{"max_uses":5,"expires_in_days":7}')
+            -d '{"max_uses":10,"expires_in_days":7}')
         
         if echo "$INVITE_CREATE" | jq -e '.code' > /dev/null 2>&1; then
             INVITE_CODE=$(echo $INVITE_CREATE | jq -r '.code')
-            echo -e "${GREEN}✓ Invitation created: $INVITE_CODE${NC}"
+            echo -e "${GREEN}✓ Invitation code captured: $INVITE_CODE${NC}"
             echo ""
             
             test_endpoint "GET" "/api/invitations/${INVITE_CODE}" "Get invitation details"
@@ -200,6 +212,140 @@ if [ "$HAS_TOKEN" = true ]; then
         fi
         
         test_endpoint "GET" "/api/monitoring/groups/${GROUP_ID}/stats" "Get group statistics" "" "$TOKEN"
+        
+        # Test group member management
+        echo ""
+        echo -e "${YELLOW}Testing group member operations...${NC}"
+        echo ""
+        
+        # Create a second test user to add to the group
+        TEST_EMAIL_2="testuser2${TIMESTAMP}@meshml.com"
+        REGISTER_2=$(curl -s -X POST ${API_GATEWAY_URL}/api/auth/register \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${TEST_EMAIL_2}\",\"password\":\"${TEST_PASSWORD}\",\"full_name\":\"Test User 2 ${TIMESTAMP}\"}")
+        
+        if echo "$REGISTER_2" | jq -e '.id' > /dev/null 2>&1; then
+            USER_2_ID=$(echo $REGISTER_2 | jq -r '.id')
+            echo -e "${GREEN}✓ Second test user created: $USER_2_ID${NC}"
+            
+            # First, add user to group by having them join using invitation
+            if [ ! -z "$INVITE_CODE" ]; then
+                echo -e "${YELLOW}Adding second user to group via invitation...${NC}"
+                
+                # Login as second user first
+                LOGIN_2=$(curl -s -X POST ${API_GATEWAY_URL}/api/auth/login \
+                    -H "Content-Type: application/json" \
+                    -d "{\"email\":\"${TEST_EMAIL_2}\",\"password\":\"${TEST_PASSWORD}\"}")
+                
+                # Test join group endpoint explicitly (requires worker_id)
+                # Note: This endpoint is for worker nodes to join public groups
+                test_endpoint "POST" "/api/groups/${GROUP_ID}/join" "Join group with invitation code" \
+                    "{\"worker_id\":\"test-join-worker-${TIMESTAMP}\",\"invitation_code\":\"${INVITE_CODE}\"}"
+                
+                # Test member management endpoints
+                # Note: These endpoints manage group members by user_id
+                # Since the platform is designed for workers (with worker_id) to join via invitations,
+                # we'll test these endpoints to verify they exist and handle the expected use case
+                
+                # First, let's get the list of members to find a member to manage
+                MEMBERS_LIST=$(curl -s -X GET ${API_GATEWAY_URL}/api/groups/${GROUP_ID}/members \
+                    -H "Authorization: Bearer $TOKEN")
+                
+                # Get the owner's user_id (the current user)
+                OWNER_USER_ID=$(echo "$TOKEN" | jq -R 'split(".") | .[1] | @base64d' | jq -r '.sub' 2>/dev/null || echo "")
+                
+                if [ ! -z "$OWNER_USER_ID" ]; then
+                    # Test update member role endpoint (will return 404 for owner - can't change own role)
+                    # This proves the endpoint exists and validates authorization
+                    echo -e "${YELLOW}Testing member management endpoints (note: these manage user-based members, workers join via invitation)...${NC}"
+                    echo ""
+                    
+                    test_endpoint "PUT" "/api/groups/${GROUP_ID}/members/00000000-0000-0000-0000-000000000000/role" "Update member role" \
+                        '{"role":"admin"}' "$TOKEN"
+                    
+                    test_endpoint "DELETE" "/api/groups/${GROUP_ID}/members/00000000-0000-0000-0000-000000000000" "Remove member from group" "" "$TOKEN"
+                else
+                    echo -e "${YELLOW}⊘ Skipping member management tests (could not extract user ID from token)${NC}"
+                    echo ""
+                fi
+            else
+                # Test update member role (will likely fail - user not in group)
+                test_endpoint "PUT" "/api/groups/${GROUP_ID}/members/${USER_2_ID}/role" "Update member role" \
+                    '{"role":"admin"}' "$TOKEN"
+                
+                # Test remove member (will likely fail - user not in group)
+                test_endpoint "DELETE" "/api/groups/${GROUP_ID}/members/${USER_2_ID}" "Remove member from group" "" "$TOKEN"
+            fi
+        fi
+        
+        # Test invitation acceptance with authentication
+        # Workers now need to authenticate (login) before accepting invitations
+        # This links their user account (for dashboard) with worker device (for training)
+        echo -e "${YELLOW}Testing authenticated invitation acceptance...${NC}"
+        echo ""
+        
+        # Create a fresh invitation for this test
+        INVITE_2_RESPONSE=$(curl -s -X POST ${API_GATEWAY_URL}/api/invitations/${GROUP_ID}/invitations \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"max_uses":5,"expires_in_days":7}')
+        
+        if echo "$INVITE_2_RESPONSE" | jq -e '.code' > /dev/null 2>&1; then
+            INVITE_CODE_2=$(echo $INVITE_2_RESPONSE | jq -r '.code')
+            echo -e "${GREEN}✓ Created invitation for authenticated test: $INVITE_CODE_2${NC}"
+            echo ""
+            
+            # Create a second user who will join as a worker
+            TEST_EMAIL_3="testuser3${TIMESTAMP}@meshml.com"
+            REGISTER_3=$(curl -s -X POST ${API_GATEWAY_URL}/api/auth/register \
+                -H "Content-Type: application/json" \
+                -d "{\"email\":\"${TEST_EMAIL_3}\",\"password\":\"${TEST_PASSWORD}\",\"full_name\":\"Test User 3 ${TIMESTAMP}\"}")
+            
+            if echo "$REGISTER_3" | jq -e '.id' > /dev/null 2>&1; then
+                USER_3_ID=$(echo $REGISTER_3 | jq -r '.id')
+                echo -e "${GREEN}✓ Third test user created: $USER_3_ID${NC}"
+                echo ""
+                
+                # Login as third user
+                LOGIN_3=$(curl -s -X POST ${API_GATEWAY_URL}/api/auth/login \
+                    -H "Content-Type: application/json" \
+                    -d "{\"email\":\"${TEST_EMAIL_3}\",\"password\":\"${TEST_PASSWORD}\"}")
+                
+                if echo "$LOGIN_3" | jq -e '.access_token' > /dev/null 2>&1; then
+                    TOKEN_3=$(echo $LOGIN_3 | jq -r '.access_token')
+                    echo -e "${GREEN}✓ Third user logged in${NC}"
+                    echo ""
+                    
+                    # Test invitation acceptance WITH authentication (new flow)
+                    # This creates a group member with both user_id and worker_id
+                    test_endpoint "POST" "/api/invitations/accept" "Accept invitation (authenticated worker join)" \
+                        "{\"worker_id\":\"test-worker-user3-${TIMESTAMP}\",\"invitation_code\":\"${INVITE_CODE_2}\"}" "$TOKEN_3"
+                    
+                    # Verify the member was added to the group
+                    MEMBERS_AFTER=$(curl -s -X GET ${API_GATEWAY_URL}/api/groups/${GROUP_ID}/members \
+                        -H "Authorization: Bearer $TOKEN")
+                    
+                    # Check if user 3 is in the members list
+                    USER_3_IN_GROUP=$(echo "$MEMBERS_AFTER" | jq -r ".[] | select(.user_id==\"${USER_3_ID}\") | .user_id")
+                    
+                    if [ "$USER_3_IN_GROUP" = "$USER_3_ID" ]; then
+                        echo -e "${GREEN}✓ User 3 successfully joined group (user_id + worker_id linked)${NC}"
+                        echo ""
+                        
+                        # Now test member management endpoints with actual user_id
+                        test_endpoint "PUT" "/api/groups/${GROUP_ID}/members/${USER_3_ID}/role" "Update member role" \
+                            '{"role":"admin"}' "$TOKEN"
+                        
+                        test_endpoint "DELETE" "/api/groups/${GROUP_ID}/members/${USER_3_ID}" "Remove member from group" "" "$TOKEN"
+                    else
+                        echo -e "${YELLOW}⚠️  Could not verify user 3 in group members${NC}"
+                        echo "  Members: $MEMBERS_AFTER"
+                        echo ""
+                    fi
+                fi
+            fi
+        fi
+        
     else
         echo -e "${RED}✗ Failed to create group${NC}"
         echo "  Response: $GROUP_CREATE"
@@ -212,6 +358,9 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "  SECTION 5: JOB MANAGEMENT"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
+
+# Test listing all jobs (requires auth)
+test_endpoint "GET" "/api/jobs" "List all jobs (requires auth)" "" "$TOKEN"
 
 if [ "$HAS_TOKEN" = true ] && [ ! -z "$GROUP_ID" ]; then
     echo -e "${YELLOW}Creating test training job...${NC}"
@@ -246,7 +395,11 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 if [ "$HAS_TOKEN" = true ]; then
-    echo -e "${YELLOW}Simulating worker registration...${NC}"
+    # Test worker registration endpoint explicitly
+    test_endpoint "POST" "/api/workers/register" "Register worker node" \
+        '{"worker_id":"test-worker-'${TIMESTAMP}'","capabilities":{"cpu_count":4,"gpu_available":false,"memory_gb":8}}' "$TOKEN"
+    
+    echo -e "${YELLOW}Capturing worker registration for subsequent tests...${NC}"
     echo ""
     
     WORKER_REGISTER=$(curl -s -X POST ${API_GATEWAY_URL}/api/workers/register \
@@ -254,17 +407,32 @@ if [ "$HAS_TOKEN" = true ]; then
         -H "Content-Type: application/json" \
         -d '{"worker_id":"test-worker-'${TIMESTAMP}'","capabilities":{"cpu_count":4,"gpu_available":false,"memory_gb":8}}')
     
-    if echo "$WORKER_REGISTER" | jq -e '.id' > /dev/null 2>&1; then
-        WORKER_ID=$(echo $WORKER_REGISTER | jq -r '.id')
+    if echo "$WORKER_REGISTER" | jq -e '.worker_id' > /dev/null 2>&1; then
+        WORKER_ID=$(echo $WORKER_REGISTER | jq -r '.worker_id')
         echo -e "${GREEN}✓ Worker registered: ID=$WORKER_ID${NC}"
         echo ""
         
+        # Test individual worker endpoints
         test_endpoint "GET" "/api/workers/${WORKER_ID}" "Get specific worker details" "" "$TOKEN"
-        test_endpoint "GET" "/api/workers/${WORKER_ID}/capabilities" "Get worker capabilities" "" "$TOKEN"
-        test_endpoint "POST" "/api/workers/${WORKER_ID}/heartbeat" "Send worker heartbeat" '{"status":"online"}' "$TOKEN"
+        # Note: GET /api/workers/{worker_id}/capabilities endpoint doesn't exist
+        # Worker capabilities are returned in the worker details endpoint above
+        test_endpoint "POST" "/api/workers/${WORKER_ID}/heartbeat" "Send worker heartbeat" \
+            '{"status":"idle","metrics":{"cpu_usage":25.5,"memory_usage":45.2}}' "$TOKEN"
     else
-        echo -e "${YELLOW}⚠️  Worker registration failed${NC}"
-        echo "  Response: $WORKER_REGISTER"
+        echo -e "${YELLOW}⚠️  Worker registration response:${NC}"
+        echo "  $WORKER_REGISTER"
+        
+        # Try to extract worker_id from response anyway
+        if echo "$WORKER_REGISTER" | jq -e '.worker_id' > /dev/null 2>&1; then
+            WORKER_ID=$(echo $WORKER_REGISTER | jq -r '.worker_id')
+            echo -e "${GREEN}✓ Worker ID found: $WORKER_ID${NC}"
+            echo ""
+            
+            # Test individual worker endpoints
+            test_endpoint "GET" "/api/workers/${WORKER_ID}" "Get specific worker details" "" "$TOKEN"
+            test_endpoint "POST" "/api/workers/${WORKER_ID}/heartbeat" "Send worker heartbeat" \
+                '{"status":"idle","metrics":{"cpu_usage":25.5,"memory_usage":45.2}}' "$TOKEN"
+        fi
         echo ""
     fi
 else

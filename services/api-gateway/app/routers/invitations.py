@@ -106,13 +106,19 @@ async def create_invitation(
 @router.post("/accept", response_model=dict)
 async def accept_invitation(
     request: AcceptInvitationRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Accept group invitation
+    Accept group invitation (requires authentication)
+    
+    Worker uses their user credentials to authenticate, then joins the group
+    with both their user_id (for dashboard access) and worker_id (for training tasks).
+    This links the user account to the worker device.
     
     Args:
         request: Invitation code and worker_id
+        current_user: Authenticated user (from login)
         db: Database session
         
     Returns:
@@ -121,8 +127,9 @@ async def accept_invitation(
     Raises:
         404: Invalid invitation code
         400: Invitation expired or used up
+        401: Not authenticated
     """
-    logger.info(f"Accepting invitation: {request.invitation_code[:12]}...")
+    logger.info(f"User {current_user.email} (worker {request.worker_id}) accepting invitation: {request.invitation_code[:12]}...")
     
     # Get invitation
     result = await db.execute(
@@ -164,17 +171,17 @@ async def accept_invitation(
             detail="Group not found"
         )
     
-    # Check if already member
+    # Check if already member (by user_id or worker_id)
     member_result = await db.execute(
         select(GroupMember).where(
             GroupMember.group_id == invitation.group_id,
-            GroupMember.worker_id == request.worker_id
+            (GroupMember.user_id == current_user.id) | (GroupMember.worker_id == request.worker_id)
         )
     )
     existing_member = member_result.scalar_one_or_none()
     
     if existing_member:
-        logger.info(f"Worker {request.worker_id} already member of group")
+        logger.info(f"User {current_user.email} (worker {request.worker_id}) already member of group")
         return {
             "group_id": invitation.group_id,
             "group_name": group.name,
@@ -182,10 +189,12 @@ async def accept_invitation(
             "joined_at": existing_member.joined_at.isoformat()
         }
     
-    # Add as member
+    # Add as member with both user_id and worker_id
+    # This links the user account (for dashboard) to the worker device (for training)
     member = GroupMember(
         group_id=invitation.group_id,
-        worker_id=request.worker_id,
+        user_id=current_user.id,  # User account for authentication and dashboard access
+        worker_id=request.worker_id,  # Worker device for training tasks
         role="worker"
     )
     
@@ -196,7 +205,7 @@ async def accept_invitation(
     
     await db.commit()
     
-    logger.info(f"Worker {request.worker_id} joined group {invitation.group_id} via invitation")
+    logger.info(f"User {current_user.email} (worker {request.worker_id}) joined group {invitation.group_id} via invitation")
     
     return {
         "group_id": invitation.group_id,
