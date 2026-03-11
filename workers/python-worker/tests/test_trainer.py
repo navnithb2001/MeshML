@@ -295,6 +295,7 @@ class TestCheckpointManagement:
     def test_save_checkpoint(self, trainer, temp_dir):
         """Test saving checkpoint"""
         pytest.importorskip("torch")
+        import torch
         import torch.nn as nn
         
         # Setup

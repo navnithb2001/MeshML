@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 import logging
 import time
 
-from app.routers import groups, jobs, workers, auth, monitoring, invitations
+from app.routers import groups, jobs, workers, auth, monitoring, invitations, parameters
 from app.middleware.security import SecurityHeadersMiddleware
 from app.utils.database import init_db, close_db
 from app.utils.redis_client import init_redis, close_redis
@@ -120,6 +120,7 @@ app.include_router(invitations.router, prefix="/api/invitations", tags=["Invitat
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(workers.router, prefix="/api/workers", tags=["Workers"])
 app.include_router(monitoring.router, prefix="/api/monitoring", tags=["Monitoring"])
+app.include_router(parameters.router, prefix="/api/ps", tags=["Parameter Server"])
 
 
 # Health check endpoint

@@ -13,6 +13,14 @@ from typing import Dict, Any, Optional, Callable, Tuple
 import inspect
 import requests
 
+# Try to import Google Cloud Storage (optional dependency)
+try:
+    from google.cloud import storage
+    GCS_AVAILABLE = True
+except ImportError:
+    storage = None  # type: ignore
+    GCS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -143,7 +151,7 @@ class ModelLoader:
             logger.info(f"Model downloaded to {model_file}")
             return model_file
             
-        except requests.RequestException as e:
+        except Exception as e:
             raise RuntimeError(f"Failed to download model from {url}: {e}")
     
     def download_model_from_gcs(
@@ -174,7 +182,11 @@ class ModelLoader:
         logger.info(f"Downloading model from gs://{bucket_name}/{blob_name}")
         
         try:
-            from google.cloud import storage
+            if not GCS_AVAILABLE:
+                raise ImportError(
+                    "google-cloud-storage not installed. "
+                    "Install with: pip install google-cloud-storage"
+                )
             
             client = storage.Client()
             bucket = client.bucket(bucket_name)

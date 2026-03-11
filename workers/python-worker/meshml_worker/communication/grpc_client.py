@@ -17,6 +17,14 @@ from typing import Dict, Any, Optional, Tuple, Callable
 from functools import wraps
 import pickle
 
+# Try to import grpc - it's optional but recommended
+try:
+    import grpc
+    GRPC_AVAILABLE = True
+except ImportError:
+    grpc = None  # type: ignore
+    GRPC_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,10 +109,14 @@ class GRPCClient:
         """Connect to Parameter Server
         
         Raises:
-            RuntimeError: If connection fails
+            RuntimeError: If connection fails or grpc not installed
         """
+        if not GRPC_AVAILABLE:
+            raise RuntimeError(
+                "grpc is not installed. Install with: pip install grpcio grpcio-tools"
+            )
+        
         try:
-            import grpc
             # Import generated proto files (would be generated from .proto)
             # from proto import parameter_server_pb2, parameter_server_pb2_grpc
             

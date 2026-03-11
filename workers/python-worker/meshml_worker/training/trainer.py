@@ -21,7 +21,7 @@ from tqdm import tqdm
 from meshml_worker.config import WorkerConfig
 from meshml_worker.training.model_loader import ModelLoader
 from meshml_worker.training.dataloader import download_data_shard
-from meshml_worker.communication.grpc_client import GRPCClient
+from meshml_worker.communication.http_client import HTTPClient
 from meshml_worker.communication.heartbeat import HeartbeatSender
 from meshml_worker.utils.checkpoint import CheckpointManager
 from meshml_worker.utils.logger import TrainingLogger
@@ -52,18 +52,18 @@ class Trainer:
     def __init__(
         self,
         config: WorkerConfig,
-        grpc_client: GRPCClient,
+        grpc_client: HTTPClient,
         device: str
     ):
         """Initialize trainer
         
         Args:
             config: Worker configuration
-            grpc_client: gRPC client for communication
+            grpc_client: HTTP client for communication (previously gRPC, now HTTP)
             device: Training device
         """
         self.config = config
-        self.grpc_client = grpc_client
+        self.grpc_client = grpc_client  # Note: keeping name for backwards compatibility
         self.device = device
         
         # Components
@@ -77,6 +77,7 @@ class Trainer:
         self.val_loader: Optional[Any] = None
         
         # State
+        self.model_id: Optional[str] = None  # Current training model ID
         self.current_epoch = 0
         self.current_iteration = 0
         self.global_version = 0
@@ -178,6 +179,9 @@ class Trainer:
         """
         logger.info("Initializing training components...")
         
+        # Store model ID
+        self.model_id = model_id
+        
         # Initialize checkpoint manager
         self.checkpoint_manager = CheckpointManager(
             checkpoint_dir=self.config.storage.checkpoints_dir,
@@ -194,6 +198,17 @@ class Trainer:
         self.memory_profiler = MemoryProfiler(device=self.device)
         self.performance_benchmark = PerformanceBenchmark()
         logger.info("Memory profiler and performance benchmark initialized")
+        
+        # Register worker with Parameter Server
+        try:
+            self.grpc_client.register_worker(
+                worker_id=self.config.worker.id or "unknown",
+                model_id=model_id,
+                metadata={"device": self.device}
+            )
+            logger.info(f"Worker registered with Parameter Server for model {model_id}")
+        except Exception as e:
+            logger.warning(f"Failed to register worker: {e}")
         
         # Load model definition
         self._load_model(model_id)
@@ -237,6 +252,7 @@ class Trainer:
         
         # Create model instance
         self.model = create_model(device=self.device)
+        self.model = self.model.to(self.device)  # Ensure model is on correct device
         self.create_dataloader_fn = create_dataloader
         
         # Initialize criterion (cross-entropy for classification)
@@ -291,20 +307,29 @@ class Trainer:
         logger.info("Fetching initial weights from Parameter Server...")
         
         try:
-            state_dict, version = self.grpc_client.get_weights(
-                job_id=model_id,
-                worker_id=self.config.worker.id,
-                epoch=self.current_epoch
-            )
-            
-            # Load state dict (if compatible)
-            # In production, would handle state dict loading properly
+            # Get current model version
+            version = self.grpc_client.get_model_version(model_id)
             self.global_version = version
+            logger.info(f"Current Parameter Server version: {version}")
             
-            logger.info(f"Fetched weights: version={version}")
+            # Get weights (if available)
+            state_dict = self.grpc_client.get_weights(model_id, version)
+            
+            # Load state dict into model if we got weights
+            if state_dict and self.model is not None:
+                try:
+                    self.model.load_state_dict(state_dict)
+                    logger.info(f"Loaded weights from Parameter Server: version={version}")
+                except Exception as e:
+                    logger.warning(f"Failed to load state dict: {e}, using current weights")
+            
+            logger.info(f"Synced with Parameter Server: version={version}")
             
         except Exception as e:
-            logger.warning(f"Failed to fetch weights, using random initialization: {e}")
+            # It's okay if weights don't exist yet (new model)
+            logger.info(f"No weights available from Parameter Server (new model): {e}")
+            logger.info("Using randomly initialized weights")
+            self.global_version = 0
     
     def _train_epoch(self, epoch: int) -> tuple:
         """Train one epoch with profiling and benchmarking
@@ -353,10 +378,18 @@ class Trainer:
             epoch_loss += loss
             num_batches += 1
             
-            # Calculate accuracy
-            _, predicted = torch.max(predictions, 1)
-            total += target.size(0)
-            correct += (predicted == target).sum().item()
+            # Calculate accuracy (only for classification tasks)
+            # Check if target is categorical (1D) or continuous (multi-dimensional)
+            if len(target.shape) == 1 or (len(target.shape) == 2 and target.shape[1] == 1):
+                # Classification task
+                _, predicted = torch.max(predictions, 1)
+                total += target.size(0)
+                if len(target.shape) == 2:
+                    target = target.squeeze(1)
+                correct += (predicted == target).sum().item()
+            else:
+                # Regression task - skip accuracy calculation
+                total += target.size(0)
             
             # End batch benchmark
             if self.performance_benchmark:
@@ -364,11 +397,16 @@ class Trainer:
             
             # Update progress bar
             current_loss = epoch_loss / num_batches
-            current_acc = 100.0 * correct / total
-            pbar.set_postfix({
-                "loss": f"{current_loss:.4f}",
-                "acc": f"{current_acc:.2f}%"
-            })
+            if correct > 0 and total > 0:
+                current_acc = 100.0 * correct / total
+                pbar.set_postfix({
+                    "loss": f"{current_loss:.4f}",
+                    "acc": f"{current_acc:.2f}%"
+                })
+            else:
+                pbar.set_postfix({
+                    "loss": f"{current_loss:.4f}"
+                })
             
             # Periodic checkpoint
             if (batch_idx + 1) % 100 == 0:
@@ -480,28 +518,26 @@ class Trainer:
             
             for name, param in self.model.named_parameters():
                 if param.grad is not None:
-                    gradients[name] = param.grad.cpu().numpy().tolist()
+                    gradients[name] = param.grad.cpu()  # Keep as tensor for HTTP serialization
                     gradient_norm += param.grad.norm().item() ** 2
             
             gradient_norm = gradient_norm ** 0.5
             
             # Prepare metadata
             metadata = {
-                "loss": loss,
                 "gradient_norm": gradient_norm,
                 "computation_time_ms": 0
             }
             
-            # Push to Parameter Server
+            # Push to Parameter Server via HTTP
             response = self.grpc_client.push_gradients(
-                job_id="default",  # Would be actual job ID
-                worker_id=self.config.worker.id,
+                worker_id=self.config.worker.id or "unknown",
+                model_id=self.model_id or "unknown",
+                version_id=self.global_version,
                 gradients=gradients,
-                batch_id=batch_idx,
-                epoch=epoch,
-                batch_size=self.config.training.batch_size,
-                learning_rate=0.001,
-                metadata=metadata
+                num_samples=self.config.training.batch_size,
+                loss=loss,
+                metrics=metadata
             )
             
             logger.debug(f"Gradients pushed: batch={batch_idx}, response={response}")

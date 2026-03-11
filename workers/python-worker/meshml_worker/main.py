@@ -92,21 +92,23 @@ class MeshMLWorker:
         try:
             # Import training components (lazy import for faster CLI)
             from meshml_worker.training.trainer import Trainer
-            from meshml_worker.communication.grpc_client import GRPCClient
+            from meshml_worker.communication.http_client import HTTPClient
             from meshml_worker.utils.device import get_device
             
             # Detect device
             device = get_device(self.config.training.device)
             logger.info(f"Using device: {device}")
             
-            # Initialize gRPC client
-            grpc_client = GRPCClient(self.config.parameter_server)
+            # Initialize HTTP client
+            http_client = HTTPClient(self.config.parameter_server.url)
+            if not http_client.connect():
+                raise RuntimeError("Failed to connect to Parameter Server")
             logger.info("Connected to Parameter Server")
             
             # Initialize trainer
             trainer = Trainer(
                 config=self.config,
-                grpc_client=grpc_client,
+                grpc_client=http_client,
                 device=device
             )
             

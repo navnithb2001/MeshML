@@ -1,53 +1,241 @@
 # MeshML Python Worker
 
-Federated learning worker implementation using PyTorch.
+[![PyPI version](https://badge.fury.io/py/meshml-worker.svg)](https://badge.fury.io/py/meshml-worker)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Installation
+**Contribute your device to distributed machine learning training!**
 
-```bash
-# Install with pip
-pip install -e .
+MeshML Worker is a Python library that enables you to participate in federated learning networks by contributing your device's computing power to train machine learning models collaboratively.
 
-# Or with poetry
-poetry install
-```
+## ✨ Features
 
-## Quick Start
+- 🚀 **Easy Setup**: Install and start contributing in minutes
+- 🔐 **Secure**: Authentication-based access control and encrypted communication
+- 🎯 **Flexible**: Support for PyTorch models and custom training configurations
+- 📊 **Monitored**: Real-time metrics and progress tracking
+- ⚡ **Efficient**: Optimized for both CPU and GPU training
+- 🌐 **Distributed**: Join global training groups and collaborate
 
-### Initialize Worker
+## 🚀 Quick Start
 
-```bash
-# Initialize worker with default configuration
-meshml-worker init
-
-# Initialize with custom config
-meshml-worker init --parameter-server-url http://localhost:8000 --worker-id my-worker
-```
-
-### Start Training
+### Installation
 
 ```bash
-# Start training on a model
-meshml-worker train --model-id my-model
+# Basic installation
+pip install meshml-worker
 
-# With custom configuration
-meshml-worker train \
-  --model-id my-model \
-  --batch-size 32 \
-  --epochs 10 \
-  --device cuda
+# With all optional features
+pip install meshml-worker[all]
+
+# Or install specific extras
+pip install meshml-worker[vision]  # For computer vision tasks
+pip install meshml-worker[grpc]    # For gRPC communication
+pip install meshml-worker[cloud]   # For cloud storage support
 ```
 
-## Configuration
+### Join a Training Group
 
-Worker configuration is stored in `.meshml/config.yaml`:
+1. **Register an account** on the MeshML platform (first time only):
+   ```bash
+   # Visit http://34.69.215.43/register
+   # OR use API to create account
+   ```
+
+2. **Login** with your credentials:
+   ```bash
+   meshml-worker login --email your@email.com
+   # You'll be prompted for your password
+   ```
+
+3. **Get an invitation code** from a group owner
+
+4. **Join the group** by accepting the invitation:
+   ```bash
+   meshml-worker join --invitation-code inv_abc123... --worker-id my-laptop
+   ```
+
+5. **Start training**:
+   ```bash
+   meshml-worker start
+   ```
+
+4. **Start training**:
+   ```bash
+   meshml-worker start
+   ```
+
+That's it! Your device is now contributing to distributed ML training! 🎉
+
+## 📖 Usage
+
+### Command Line Interface
+
+```bash
+# Register a new account
+meshml-worker register --email your@email.com --name "Your Name"
+
+# Login to your account
+meshml-worker login --email your@email.com
+
+# Join a training group with invitation code
+meshml-worker join --invitation-code inv_xyz789 --worker-id my-device
+
+# Start the worker (begin training)
+meshml-worker start
+
+# Check worker status
+meshml-worker status
+
+# View training metrics
+meshml-worker metrics
+
+# Stop the worker
+meshml-worker stop
+```
+
+### Python API
+
+```python
+from meshml_worker import MeshMLWorker
+
+# Initialize worker
+worker = MeshMLWorker(
+    api_url="http://meshml.example.com",
+    email="your@email.com",
+    password="your-password",
+    worker_id="my-device"
+)
+
+# Authenticate
+worker.login()
+
+# Join a group
+worker.join_group(invitation_code="inv_abc123...")
+
+# Start training
+worker.start()
+
+# Monitor progress
+while worker.is_training():
+    metrics = worker.get_metrics()
+    print(f"Loss: {metrics['loss']}, Accuracy: {metrics['accuracy']}")
+    
+# Stop worker
+worker.stop()
+```
+
+## 🔧 Configuration
+
+Worker configuration is stored in `~/.meshml/config.yaml`:
 
 ```yaml
 worker:
-  id: worker-1
+  id: "my-device"
   name: "My Worker"
+  device: "cpu"  # or "cuda" for GPU
   
-parameter_server:
+api:
+  gateway_url: "http://34.69.215.43"
+  
+training:
+  batch_size: 32
+  epochs: 10
+  learning_rate: 0.001
+```
+
+## 💡 How It Works
+
+1. **Register & Login**: Create your account on the MeshML platform
+2. **Join a Group**: Use an invitation code to join a training group
+3. **Receive Tasks**: Your worker automatically receives training tasks from the coordinator
+4. **Train Locally**: Models are trained on your local data (data never leaves your device)
+5. **Share Updates**: Only model updates are sent back to the parameter server
+6. **Aggregate**: Updates from all workers are combined to improve the global model
+
+## 🔐 Security & Privacy
+
+- **Data Privacy**: Your training data never leaves your device
+- **Authentication**: Secure JWT-based authentication
+- **Encrypted Communication**: All API communication over HTTPS
+- **Access Control**: Role-based permissions for group management
+
+## 📊 Monitoring
+
+Monitor your worker's performance:
+
+```bash
+# View current status
+meshml-worker status
+
+# View detailed metrics
+meshml-worker metrics --watch
+
+# View training logs
+meshml-worker logs
+```
+
+## 🛠️ Advanced Usage
+
+### Custom Training Configuration
+
+```python
+from meshml_worker import MeshMLWorker, TrainingConfig
+
+config = TrainingConfig(
+    batch_size=64,
+    epochs=20,
+    learning_rate=0.01,
+    device="cuda",
+    num_workers=4
+)
+
+worker = MeshMLWorker(config=config)
+worker.start()
+```
+
+### GPU Support
+
+```bash
+# Use GPU for training
+meshml-worker start --device cuda
+
+# Specify GPU device
+meshml-worker start --device cuda:0
+```
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](../../LICENSE) file for details.
+
+## 🔗 Links
+
+- **Platform**: http://34.69.215.43
+- **Documentation**: https://meshml.readthedocs.io
+- **GitHub**: https://github.com/navnithb2001/MeshML
+- **Issues**: https://github.com/navnithb2001/MeshML/issues
+
+## 💬 Support
+
+- 📧 Email: meshml@example.com
+- 💬 Discord: [Join our community](https://discord.gg/meshml)
+- 🐛 Issues: [GitHub Issues](https://github.com/navnithb2001/MeshML/issues)
+
+## ⚡ Examples
+
+Check out our [examples directory](examples/) for more use cases:
+
+- [Computer Vision Training](examples/vision_training.py)
+- [Custom Model Training](examples/custom_model.py)
+- [Multi-GPU Setup](examples/multi_gpu.py)
+
+---
+
+Made with ❤️ by the MeshML Team
   url: http://localhost:8000
   timeout: 30
   

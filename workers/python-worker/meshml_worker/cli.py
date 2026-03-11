@@ -115,6 +115,112 @@ def init(
 
 @main.command()
 @click.option(
+    "--email",
+    prompt=True,
+    help="User email"
+)
+@click.option(
+    "--password",
+    prompt=True,
+    hide_input=True,
+    help="User password"
+)
+@click.option(
+    "--api-url",
+    default="http://34.69.215.43",
+    help="API Gateway URL"
+)
+def login(email: str, password: str, api_url: str) -> None:
+    """Login to MeshML platform"""
+    
+    try:
+        from meshml_worker.registration import WorkerRegistration
+        
+        # Create minimal config object for authentication
+        class AuthConfig:
+            def __init__(self):
+                self.worker = type('Worker', (), {'worker_id': 'temp', 'user_email': None})()
+        
+        config = AuthConfig()
+        config.api_base_url = api_url
+        
+        # Initialize registration manager
+        registration = WorkerRegistration(config)
+        
+        # Attempt login
+        click.echo(f"Logging in as {email}...")
+        registration.login(email, password)
+        
+        click.echo("\n✓ Login successful!")
+        click.echo(f"  User: {email}")
+        click.echo(f"  Token saved to: ~/.meshml/auth.json")
+        click.echo()
+        click.echo("Next steps:")
+        click.echo("  1. Join a group: meshml-worker join --invitation-code <code> --worker-id <id>")
+        click.echo("  2. Start training: meshml-worker start")
+        
+    except Exception as e:
+        click.echo(f"\n✗ Login failed: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.option(
+    "--invitation-code",
+    prompt=True,
+    help="Group invitation code"
+)
+@click.option(
+    "--worker-id",
+    prompt=True,
+    help="Worker device ID (e.g., laptop-1, gpu-server-2)"
+)
+@click.option(
+    "--api-url",
+    default="http://34.69.215.43",
+    help="API Gateway URL"
+)
+def join(invitation_code: str, worker_id: str, api_url: str) -> None:
+    """Join a group using invitation code (requires prior login)"""
+    
+    try:
+        from meshml_worker.registration import WorkerRegistration
+        
+        # Create minimal config object
+        class AuthConfig:
+            def __init__(self):
+                self.worker = type('Worker', (), {'worker_id': worker_id, 'user_email': None})()
+        
+        config = AuthConfig()
+        config.api_base_url = api_url
+        
+        # Initialize registration manager (will load saved auth token)
+        registration = WorkerRegistration(config)
+        
+        # Check if logged in
+        if not registration.auth_token:
+            click.echo("✗ Not logged in. Please run 'meshml-worker login' first.", err=True)
+            sys.exit(1)
+        
+        # Join group
+        click.echo(f"Joining group with invitation code...")
+        result = registration.join_group_by_invitation(invitation_code)
+        
+        click.echo("\n✓ Successfully joined group!")
+        click.echo(f"  Group: {result.get('group_name')}")
+        click.echo(f"  Worker ID: {worker_id}")
+        click.echo(f"  User: {registration.user_email}")
+        click.echo()
+        click.echo("Next steps:")
+        click.echo("  1. Start training: meshml-worker start")
+        
+    except Exception as e:
+        click.echo(f"\n✗ Failed to join group: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.option(
     "--model-id",
     required=True,
     help="Model ID to train"
@@ -154,7 +260,7 @@ def init(
     is_flag=True,
     help="Dry run (validate setup without training)"
 )
-def train(
+def start(
     model_id: str,
     config: Optional[Path],
     epochs: Optional[int],

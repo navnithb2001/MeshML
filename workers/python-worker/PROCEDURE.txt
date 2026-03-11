@@ -1,0 +1,358 @@
+═══════════════════════════════════════════════════════════════════
+                    MESHML WORKER PROCEDURE
+                  Complete Setup & Usage Guide
+═══════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────┐
+│                     QUICK START (5 STEPS)                        │
+└─────────────────────────────────────────────────────────────────┘
+
+  1️⃣  INSTALL
+      $ pip install meshml-worker
+
+  2️⃣  LOGIN
+      $ meshml-worker login --email you@example.com
+      Password: ********
+      ✓ Login successful!
+
+  3️⃣  JOIN GROUP (get invitation code from group owner)
+      $ meshml-worker join --invitation-code inv_abc123 --worker-id my-laptop
+      ✓ Successfully joined group!
+
+  4️⃣  START TRAINING
+      $ meshml-worker start
+      🚀 Worker started! Waiting for tasks...
+
+  5️⃣  MONITOR (in another terminal)
+      $ meshml-worker status
+      $ meshml-worker metrics
+
+═══════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    DETAILED PROCEDURE                            │
+└─────────────────────────────────────────────────────────────────┘
+
+STEP 1: INSTALL THE WORKER
+───────────────────────────────────────────────────────────────────
+  Command:
+    $ pip install meshml-worker
+  
+  Or with extras:
+    $ pip install meshml-worker[all]     # All features
+    $ pip install meshml-worker[vision]  # Computer vision
+    $ pip install meshml-worker[grpc]    # gRPC support
+  
+  Verify:
+    $ meshml-worker --version
+    meshml-worker, version 0.1.0
+
+───────────────────────────────────────────────────────────────────
+
+STEP 2: REGISTER ACCOUNT (First Time Only)
+───────────────────────────────────────────────────────────────────
+  You need a user account on the MeshML platform.
+  
+  Option A - Web Interface (Recommended):
+    1. Visit: http://34.69.215.43/register
+    2. Fill in:
+       - Email: your@email.com
+       - Password: YourSecurePassword123!
+       - Name: Your Name
+    3. Click "Register"
+  
+  Option B - API:
+    $ curl -X POST http://34.69.215.43/api/auth/register \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "your@email.com",
+        "password": "YourSecurePassword123!",
+        "name": "Your Name"
+      }'
+
+───────────────────────────────────────────────────────────────────
+
+STEP 3: LOGIN
+───────────────────────────────────────────────────────────────────
+  Authenticate and get your access token.
+  
+  Command:
+    $ meshml-worker login --email your@email.com
+    Password: ********
+  
+  What happens:
+    ✓ Validates email/password
+    ✓ Gets JWT access token
+    ✓ Saves token to ~/.meshml/auth.json
+    ✓ Token auto-loaded for future commands
+  
+  Output:
+    Logging in as your@email.com...
+    
+    ✓ Login successful!
+      User: your@email.com
+      Token saved to: ~/.meshml/auth.json
+    
+    Next steps:
+      1. Join a group: meshml-worker join ...
+      2. Start training: meshml-worker start
+
+───────────────────────────────────────────────────────────────────
+
+STEP 4: GET INVITATION CODE
+───────────────────────────────────────────────────────────────────
+  Ask the group owner/admin for an invitation code.
+  
+  Group owners create invitations via:
+    - Dashboard: http://34.69.215.43/groups/{id}/invitations
+    - API: POST /api/groups/{id}/invitations
+  
+  Example invitation code: inv_abc123xyz789
+
+───────────────────────────────────────────────────────────────────
+
+STEP 5: JOIN GROUP
+───────────────────────────────────────────────────────────────────
+  Use the invitation code to join a training group.
+  
+  Command:
+    $ meshml-worker join \
+        --invitation-code inv_abc123xyz \
+        --worker-id my-laptop-1
+  
+  What happens:
+    ✓ Validates invitation code
+    ✓ Links your user account to worker device
+    ✓ Creates group membership (user_id + worker_id)
+    ✓ Saves group info to ~/.meshml/current_group.json
+  
+  Output:
+    Joining group with invitation code...
+    
+    ✓ Successfully joined group!
+      Group: Computer Vision Research
+      Worker ID: my-laptop-1
+      User: your@email.com
+    
+    Next steps:
+      1. Start training: meshml-worker start
+
+───────────────────────────────────────────────────────────────────
+
+STEP 6: START TRAINING
+───────────────────────────────────────────────────────────────────
+  Start the worker and begin training!
+  
+  Command:
+    $ meshml-worker start
+  
+  What happens:
+    ✓ Loads saved authentication
+    ✓ Connects to MeshML platform
+    ✓ Registers with group
+    ✓ Waits for training tasks
+    ✓ Downloads models when tasks arrive
+    ✓ Trains on local data
+    ✓ Uploads model updates
+    ✓ Repeats for each training round
+  
+  Output:
+    🚀 MeshML Worker Starting...
+      Worker ID: my-laptop-1
+      Group: Computer Vision Research
+      Device: cuda (NVIDIA GeForce RTX 3080)
+    
+    ✓ Connected to MeshML platform
+    ✓ Registered with group
+    
+    ⏳ Waiting for training tasks...
+    
+    📥 Received training task: image-classification-v1
+      Model: ResNet50
+      Batch size: 32
+      Epochs: 5
+    
+    🏋️ Training...
+      Epoch 1/5: Loss=0.432, Accuracy=85.3%
+      Epoch 2/5: Loss=0.289, Accuracy=91.2%
+      ...
+    
+    📤 Uploading model updates...
+    ✓ Training round complete!
+    
+    ⏳ Waiting for next task...
+
+───────────────────────────────────────────────────────────────────
+
+STEP 7: MONITOR (Optional)
+───────────────────────────────────────────────────────────────────
+  In another terminal, monitor your worker.
+  
+  Check status:
+    $ meshml-worker status
+  
+  View metrics:
+    $ meshml-worker metrics
+    $ meshml-worker metrics --watch    # Real-time
+  
+  View logs:
+    $ meshml-worker logs
+    $ meshml-worker logs --tail 100
+    $ meshml-worker logs --follow
+
+───────────────────────────────────────────────────────────────────
+
+STEP 8: STOP (When Done)
+───────────────────────────────────────────────────────────────────
+  Stop the worker gracefully.
+  
+  Command:
+    $ meshml-worker stop
+  
+  Output:
+    Stopping worker...
+    ✓ Current training task completed
+    ✓ Worker stopped gracefully
+
+═══════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────┐
+│                   COMPLETE EXAMPLE SESSION                       │
+└─────────────────────────────────────────────────────────────────┘
+
+  # 1. Install
+  $ pip install meshml-worker
+  ✓ Successfully installed meshml-worker-0.1.0
+
+  # 2. Register account (via web)
+  # Visit: http://34.69.215.43/register
+  # Email: alice@example.com, Password: SecurePass123!
+
+  # 3. Login
+  $ meshml-worker login --email alice@example.com
+  Password: ********
+  ✓ Login successful!
+
+  # 4. Get invitation code (from group owner)
+  # Code: inv_xyz789abc
+
+  # 5. Join group
+  $ meshml-worker join \
+      --invitation-code inv_xyz789abc \
+      --worker-id alice-laptop
+  ✓ Successfully joined group: Medical AI Research
+
+  # 6. Start training
+  $ meshml-worker start
+  🚀 Worker started!
+  ⏳ Waiting for training tasks...
+  
+  # Worker is now running! 🎉
+
+═══════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────┐
+│                      FILE STRUCTURE                              │
+└─────────────────────────────────────────────────────────────────┘
+
+  After setup, your files will look like:
+  
+  ~/.meshml/
+  ├── auth.json              ← Your authentication token
+  │   {
+  │     "token": "eyJhbGc...",
+  │     "email": "your@email.com"
+  │   }
+  │
+  ├── current_group.json     ← Current group info
+  │   {
+  │     "group_id": "uuid",
+  │     "group_name": "...",
+  │     "member_id": "uuid"
+  │   }
+  │
+  ├── config.yaml            ← Worker configuration
+  │   worker:
+  │     id: my-laptop-1
+  │     device: cuda
+  │   training:
+  │     batch_size: 32
+  │   ...
+  │
+  ├── logs/
+  │   └── worker.log         ← Training logs
+  │
+  └── cache/
+      └── models/            ← Downloaded models
+
+═══════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────┐
+│                   COMMON COMMANDS                                │
+└─────────────────────────────────────────────────────────────────┘
+
+  Authentication:
+    meshml-worker login --email YOU@EMAIL.COM
+  
+  Join Group:
+    meshml-worker join --invitation-code CODE --worker-id DEVICE
+  
+  Start/Stop:
+    meshml-worker start
+    meshml-worker stop
+  
+  Monitoring:
+    meshml-worker status
+    meshml-worker metrics
+    meshml-worker logs
+  
+  Configuration:
+    meshml-worker config --show
+    meshml-worker config --set device cuda
+
+═══════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────┐
+│                      TROUBLESHOOTING                             │
+└─────────────────────────────────────────────────────────────────┘
+
+  ❌ "Not logged in" error
+     → Run: meshml-worker login --email your@email.com
+  
+  ❌ "Invalid invitation code" error
+     → Check the code is correct (case-sensitive)
+     → Ask group owner for a new invitation
+  
+  ❌ "Already a member" error
+     → You're already in the group! Just run: meshml-worker start
+  
+  ❌ Connection issues
+     → Test: curl http://34.69.215.43/health
+     → Check logs: meshml-worker logs
+  
+  ❌ GPU not detected
+     → Check: python -c "import torch; print(torch.cuda.is_available())"
+     → Use CPU: meshml-worker config --set device cpu
+
+═══════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────┐
+│                        RESOURCES                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+  📚 Documentation:
+     - WORKER-SETUP.md       → Complete setup guide
+     - FLOW-DIAGRAMS.md      → Visual flow diagrams
+     - QUICKREF.md           → Command reference
+     - README.md             → Package overview
+  
+  🌐 Platform:
+     - Web: http://34.69.215.43
+     - Dashboard: /dashboard
+     - Register: /register
+  
+  💬 Support:
+     - GitHub: github.com/navnithb2001/MeshML
+     - Issues: github.com/navnithb2001/MeshML/issues
+
+═══════════════════════════════════════════════════════════════════

@@ -41,6 +41,12 @@ class WorkerRegistration:
         self.current_group_id: Optional[str] = None
         self.auth_token: Optional[str] = None
         
+        # Try to load saved auth token
+        saved_token = self._load_auth_token()
+        if saved_token:
+            self.auth_token = saved_token
+            logger.info(f"Loaded saved authentication for {self.user_email}")
+        
         logger.info(f"Initialized registration manager for worker {self.worker_id}")
     
     def register_worker(self, capabilities: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -85,6 +91,47 @@ class WorkerRegistration:
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to register worker: {e}")
             raise RuntimeError(f"Worker registration failed: {e}")
+    
+    def login(self, email: str, password: str) -> Dict[str, Any]:
+        """Authenticate user and get JWT token
+        
+        Args:
+            email: User email
+            password: User password
+            
+        Returns:
+            Login response with user info and auth token
+            
+        Raises:
+            RuntimeError: If login fails
+        """
+        logger.info(f"Logging in user: {email}...")
+        
+        try:
+            response = requests.post(
+                f"{self.api_base_url}/api/auth/login",
+                json={
+                    "email": email,
+                    "password": password
+                },
+                timeout=10
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            self.auth_token = data.get("access_token")
+            self.user_email = email
+            
+            # Save auth token to config
+            if self.auth_token:
+                self._save_auth_token(self.auth_token)
+            
+            logger.info(f"Successfully logged in as: {email}")
+            return data
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to login: {e}")
+            raise RuntimeError(f"Login failed: {e}")
     
     def join_group_by_invitation(self, invitation_code: str) -> Dict[str, Any]:
         """Join a group using invitation code
@@ -346,6 +393,45 @@ class WorkerRegistration:
         if self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
         return headers
+    
+    def _save_auth_token(self, token: str) -> None:
+        """Save authentication token to config
+        
+        Args:
+            token: JWT authentication token
+        """
+        config_dir = Path.home() / ".meshml"
+        config_dir.mkdir(exist_ok=True)
+        
+        auth_file = config_dir / "auth.json"
+        with open(auth_file, 'w') as f:
+            json.dump({
+                "token": token,
+                "email": self.user_email
+            }, f, indent=2)
+        
+        logger.debug("Saved authentication token")
+    
+    def _load_auth_token(self) -> Optional[str]:
+        """Load authentication token from config
+        
+        Returns:
+            JWT token if available
+        """
+        config_dir = Path.home() / ".meshml"
+        auth_file = config_dir / "auth.json"
+        
+        if not auth_file.exists():
+            return None
+        
+        try:
+            with open(auth_file, 'r') as f:
+                data = json.load(f)
+                self.user_email = data.get("email")
+                return data.get("token")
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"Failed to load auth token: {e}")
+            return None
     
     def _save_group_info(self, group_data: Dict[str, Any]) -> None:
         """Save group information to config

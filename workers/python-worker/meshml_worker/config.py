@@ -178,9 +178,15 @@ def load_config(config_path: Optional[Path] = None) -> WorkerConfig:
         WorkerConfig instance
     """
     if config_path is None:
-        config_path = Path(".meshml") / "config.yaml"
+        # Try home directory first, then current directory
+        home_config = Path.home() / ".meshml" / "config.yaml"
+        local_config = Path(".meshml") / "config.yaml"
+        
+        if home_config.exists():
+            config_path = home_config
+        elif local_config.exists():
+            config_path = local_config
+        else:
+            return get_default_config()
     
-    if config_path.exists():
-        return WorkerConfig.from_file(config_path)
-    else:
-        return get_default_config()
+    return WorkerConfig.from_file(config_path)

@@ -46,7 +46,8 @@ def example_model_file():
     # Use the example model we created
     example_path = Path(__file__).parent.parent / "examples" / "example_model.py"
     if example_path.exists():
-        return example_path
+        yield example_path
+        return
     
     # Create a simple test model if example doesn't exist
     test_model_content = """
@@ -300,6 +301,7 @@ class TestDownloadFromURL:
 class TestDownloadFromGCS:
     """Test downloading models from Google Cloud Storage"""
     
+    @patch('meshml_worker.training.model_loader.GCS_AVAILABLE', True)
     @patch('meshml_worker.training.model_loader.storage')
     def test_download_from_gcs(self, mock_storage, model_loader):
         """Test downloading model from GCS"""
@@ -312,6 +314,11 @@ class TestDownloadFromGCS:
         mock_client.bucket.return_value = mock_bucket
         mock_bucket.blob.return_value = mock_blob
         
+        # Mock download_to_filename to actually create the file
+        def create_file(filename):
+            Path(filename).write_text("# Downloaded model")
+        mock_blob.download_to_filename.side_effect = create_file
+        
         model_file = model_loader.download_model_from_gcs(
             bucket_name="my-bucket",
             blob_name="models/model.py",
@@ -321,6 +328,7 @@ class TestDownloadFromGCS:
         assert model_file.exists()
         mock_blob.download_to_filename.assert_called_once()
     
+    @patch('meshml_worker.training.model_loader.GCS_AVAILABLE', True)
     @patch('meshml_worker.training.model_loader.storage')
     def test_download_from_gcs_with_cache(self, mock_storage, model_loader):
         """Test GCS download with cache"""
