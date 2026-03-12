@@ -433,6 +433,49 @@ class WorkerRegistration:
             logger.warning(f"Failed to load auth token: {e}")
             return None
     
+    def get_user_id_from_token(self) -> Optional[str]:
+        """Extract user ID from JWT token
+        
+        Returns:
+            User ID if token is valid and contains user info
+        """
+        if not self.auth_token:
+            return None
+        
+        try:
+            # JWT tokens have 3 parts: header.payload.signature
+            # We decode the payload (middle part) which contains user info
+            import base64
+            
+            parts = self.auth_token.split('.')
+            if len(parts) != 3:
+                logger.warning("Invalid JWT token format")
+                return None
+            
+            # Decode payload (add padding if needed)
+            payload = parts[1]
+            padding = 4 - len(payload) % 4
+            if padding != 4:
+                payload += '=' * padding
+            
+            decoded = base64.urlsafe_b64decode(payload)
+            payload_data = json.loads(decoded)
+            
+            # JWT tokens typically have 'sub' (subject) field with user ID
+            # or 'user_id' field
+            user_id = payload_data.get('sub') or payload_data.get('user_id')
+            
+            if user_id:
+                logger.debug(f"Extracted user ID from token: {user_id}")
+                return str(user_id)
+            else:
+                logger.warning("No user ID found in JWT token payload")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to decode JWT token: {e}")
+            return None
+    
     def _save_group_info(self, group_data: Dict[str, Any]) -> None:
         """Save group information to config
         

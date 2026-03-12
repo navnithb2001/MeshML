@@ -38,7 +38,7 @@ pip install meshml-worker[cloud]   # For cloud storage support
 
 1. **Register an account** on the MeshML platform (first time only):
    ```bash
-   # Visit http://34.69.215.43/register
+   # Visit your MeshML platform URL (provided by your organization)
    # OR use API to create account
    ```
 
@@ -136,7 +136,7 @@ worker:
   device: "cpu"  # or "cuda" for GPU
   
 api:
-  gateway_url: "http://34.69.215.43"
+  gateway_url: "https://api.meshml.example.com"  # Your MeshML platform URL
   
 training:
   batch_size: 32
@@ -214,14 +214,13 @@ This project is licensed under the MIT License - see the [LICENSE](../../LICENSE
 
 ## 🔗 Links
 
-- **Platform**: http://34.69.215.43
 - **Documentation**: https://meshml.readthedocs.io
 - **GitHub**: https://github.com/navnithb2001/MeshML
 - **Issues**: https://github.com/navnithb2001/MeshML/issues
 
 ## 💬 Support
 
-- 📧 Email: meshml@example.com
+- 📧 Email: bharadwajnavnith5@gmail.com
 - 💬 Discord: [Join our community](https://discord.gg/meshml)
 - 🐛 Issues: [GitHub Issues](https://github.com/navnithb2001/MeshML/issues)
 
@@ -236,19 +235,6 @@ Check out our [examples directory](examples/) for more use cases:
 ---
 
 Made with ❤️ by the MeshML Team
-  url: http://localhost:8000
-  timeout: 30
-  
-training:
-  device: auto  # auto, cuda, cpu, mps
-  batch_size: 32
-  num_workers: 4
-  mixed_precision: true
-  
-storage:
-  checkpoints_dir: .meshml/checkpoints
-  models_dir: .meshml/models
-  data_dir: .meshml/data
 ```
 
 ## Features

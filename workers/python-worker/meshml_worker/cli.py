@@ -20,7 +20,7 @@ from meshml_worker.main import MeshMLWorker
 
 
 @click.group()
-@click.version_option(version="0.2.0")
+@click.version_option(version="0.2.2")
 def main() -> None:
     """MeshML Worker - Federated Learning Worker"""
     pass
@@ -160,8 +160,8 @@ def login(email: str, password: str, api_url: str) -> None:
         click.echo(f"  Token saved to: ~/.meshml/auth.json")
         click.echo()
         click.echo("Next steps:")
-        click.echo("  1. Join a group: meshml-worker join --invitation-code <code> --worker-id <id>")
-        click.echo("  2. Start training: meshml-worker run --user-id <user_id>")
+        click.echo("  1. Join a group (optional): meshml-worker join --invitation-code <code>")
+        click.echo("  2. Start training: meshml-worker run")
         
     except Exception as e:
         click.echo(f"\n✗ Login failed: {e}", err=True)
@@ -216,7 +216,7 @@ def join(invitation_code: str, worker_id: str, api_url: str) -> None:
         click.echo(f"  User: {registration.user_email}")
         click.echo()
         click.echo("Next steps:")
-        click.echo("  1. Start training: meshml-worker run --user-id <user_id>")
+        click.echo("  1. Start training: meshml-worker run")
         
     except Exception as e:
         click.echo(f"\n✗ Failed to join group: {e}", err=True)
@@ -226,11 +226,6 @@ def join(invitation_code: str, worker_id: str, api_url: str) -> None:
 
 
 @main.command()
-@click.option(
-    "--user-id",
-    required=True,
-    help="User ID for authentication with Task Orchestrator"
-)
 @click.option(
     "--config",
     type=click.Path(exists=True, path_type=Path),
@@ -255,7 +250,6 @@ def join(invitation_code: str, worker_id: str, api_url: str) -> None:
     help="Training device (overrides config)"
 )
 def run(
-    user_id: str,
     config: Optional[Path],
     preferred_jobs: Optional[str],
     batch_size: Optional[int],
@@ -264,16 +258,50 @@ def run(
     """Run worker with full Task Orchestrator integration (production mode)
     
     This command:
-    1. Registers with Task Orchestrator
-    2. Requests task assignment
-    3. Downloads model from Model Registry
-    4. Downloads data from Dataset Sharder
-    5. Trains and reports progress
+    1. Automatically loads user authentication from saved login
+    2. Registers with Task Orchestrator
+    3. Requests task assignment
+    4. Downloads model from Model Registry
+    5. Downloads data from Dataset Sharder
+    6. Trains and reports progress
+    
+    Prerequisites:
+    - Run 'meshml-worker login' first to authenticate
+    - Run 'meshml-worker join' to join a group (optional)
     
     Example:
-        meshml-worker run --user-id user_123
+        meshml-worker run
     """
     import asyncio
+    
+    # Load authentication token and get user ID
+    from meshml_worker.registration import WorkerRegistration
+    
+    try:
+        # Create minimal config to load auth
+        class AuthConfig:
+            def __init__(self):
+                self.worker = type('Worker', (), {'worker_id': 'temp', 'user_email': None})()
+        
+        auth_config = AuthConfig()
+        registration = WorkerRegistration(auth_config)
+        
+        # Get user ID from saved token
+        user_id = registration.get_user_id_from_token()
+        
+        if not user_id:
+            click.echo("\n✗ Authentication required!", err=True)
+            click.echo("Please run 'meshml-worker login' first to authenticate.", err=True)
+            click.echo("\nExample:", err=True)
+            click.echo("  meshml-worker login --email user@example.com --password yourpassword", err=True)
+            sys.exit(1)
+        
+        click.echo(f"✓ Authenticated as: {registration.user_email} (User ID: {user_id})")
+        
+    except Exception as e:
+        click.echo(f"\n✗ Failed to load authentication: {e}", err=True)
+        click.echo("Please run 'meshml-worker login' first.", err=True)
+        sys.exit(1)
     
     # Load configuration
     try:
