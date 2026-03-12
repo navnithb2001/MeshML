@@ -12,7 +12,7 @@ Handles:
 import logging
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, List
 import torch
 import torch.nn as nn
 from torch.cuda.amp import autocast, GradScaler
@@ -53,7 +53,11 @@ class Trainer:
         self,
         config: WorkerConfig,
         grpc_client: HTTPClient,
-        device: str
+        device: str,
+        orchestrator_client: Optional[Any] = None,
+        job_id: Optional[str] = None,
+        model_path: Optional[Path] = None,
+        data_paths: Optional[List[Path]] = None
     ):
         """Initialize trainer
         
@@ -61,10 +65,20 @@ class Trainer:
             config: Worker configuration
             grpc_client: HTTP client for communication (previously gRPC, now HTTP)
             device: Training device
+            orchestrator_client: Optional Task Orchestrator client for reporting
+            job_id: Optional job ID (for orchestrated training)
+            model_path: Optional path to model file (overrides default model)
+            data_paths: Optional list of data shard paths (overrides data loading)
         """
         self.config = config
         self.grpc_client = grpc_client  # Note: keeping name for backwards compatibility
         self.device = device
+        
+        # Orchestrator integration
+        self.orchestrator_client = orchestrator_client
+        self.job_id = job_id
+        self.model_path = model_path
+        self.data_paths = data_paths
         
         # Components
         self.model: Optional[nn.Module] = None
@@ -98,38 +112,59 @@ class Trainer:
         
         logger.info(f"Trainer initialized: device={device}")
     
-    def train(
+    async def train(
         self,
         model_id: str,
-        epochs: Optional[int] = None,
-        checkpoint_path: Optional[Path] = None
+        job_id: str,
+        batch_ids: List[str],
+        epochs: Optional[int] = None
     ) -> None:
-        """Start training on a model
+        """Training loop with Task Orchestrator integration
+        
+        This method:
+        1. Loads data from pre-downloaded shards
+        2. Trains the model
+        3. Reports progress to Task Orchestrator after each batch
         
         Args:
             model_id: Model ID
+            job_id: Job ID from Task Orchestrator
+            batch_ids: List of batch IDs assigned to this worker
             epochs: Number of epochs (None = train until convergence)
-            checkpoint_path: Resume from checkpoint
         """
-        logger.info(f"Starting training: model_id={model_id}")
+        logger.info(f"Starting orchestrated training: model_id={model_id}, job_id={job_id}")
+        logger.info(f"Assigned batches: {len(batch_ids)}")
         
         try:
-            # Initialize components
-            self._initialize_training(model_id, checkpoint_path)
+            # Initialize components (without data loading and checkpoint)
+            self._initialize_training_minimal(model_id)
             
-            # Start heartbeat
-            self._start_heartbeat()
+            # Load data - use pre-downloaded shards
+            if self.data_paths:
+                logger.info(f"Using {len(self.data_paths)} pre-downloaded data shards")
+                self.train_loader = self._create_dataloader_from_shards(
+                    shard_paths=self.data_paths,
+                    batch_size=self.config.training.batch_size,
+                    num_workers=self.config.training.num_workers
+                )
+            else:
+                logger.warning("No pre-downloaded data paths, cannot train")
+                raise ValueError("Orchestrated mode requires pre-downloaded data_paths")
             
             # Training loop
-            max_epochs = epochs or 100  # Default max epochs
+            max_epochs = epochs or 100
             
             for epoch in range(self.current_epoch, max_epochs):
                 self.current_epoch = epoch
                 
-                logger.info(f"Starting epoch {epoch + 1}/{max_epochs}")
+                logger.info(f"Epoch {epoch + 1}/{max_epochs}")
                 
-                # Train one epoch
-                epoch_loss, epoch_metrics = self._train_epoch(epoch)
+                # Train one epoch with batch-level reporting
+                epoch_loss, epoch_metrics = await self._train_epoch_with_reporting(
+                    epoch=epoch,
+                    job_id=job_id,
+                    batch_ids=batch_ids
+                )
                 
                 # Log epoch results
                 self.training_logger.log_epoch(
@@ -142,42 +177,161 @@ class Trainer:
                 # Save checkpoint
                 self._save_checkpoint(epoch, epoch_loss, epoch_metrics)
                 
-                # Update heartbeat
-                self._update_heartbeat_status(
-                    state="training",
-                    current_epoch=epoch,
-                    loss=epoch_loss,
-                    metrics=epoch_metrics
-                )
-                
                 logger.info(
                     f"Epoch {epoch + 1} completed: loss={epoch_loss:.4f}, "
-                    f"metrics={epoch_metrics}"
+                    f"accuracy={epoch_metrics.get('accuracy', 'N/A')}"
                 )
             
-            logger.info("Training completed successfully")
+            logger.info("Orchestrated training completed successfully")
             
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")
+            # Report failure to orchestrator
+            if self.orchestrator_client:
+                for batch_id in batch_ids:
+                    try:
+                        await self.orchestrator_client.report_batch_failed(
+                            job_id=job_id,
+                            batch_id=batch_id,
+                            epoch=self.current_epoch,
+                            error_message="Training interrupted by user"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to report failure for batch {batch_id}: {e}")
             raise
         except Exception as e:
-            logger.error(f"Training failed: {e}", exc_info=True)
+            logger.error(f"Orchestrated training failed: {e}", exc_info=True)
+            # Report failure to orchestrator
+            if self.orchestrator_client:
+                for batch_id in batch_ids:
+                    try:
+                        await self.orchestrator_client.report_batch_failed(
+                            job_id=job_id,
+                            batch_id=batch_id,
+                            epoch=self.current_epoch,
+                            error_message=str(e)
+                        )
+                    except Exception as report_err:
+                        logger.error(f"Failed to report failure for batch {batch_id}: {report_err}")
             raise
         finally:
             self._cleanup()
     
-    def _initialize_training(
+    async def _train_epoch_with_reporting(
         self,
-        model_id: str,
-        checkpoint_path: Optional[Path]
+        epoch: int,
+        job_id: str,
+        batch_ids: List[str]
+    ) -> tuple:
+        """Train one epoch with batch-level progress reporting to Task Orchestrator
+        
+        Args:
+            epoch: Current epoch number
+            job_id: Job ID
+            batch_ids: List of batch IDs assigned to this worker
+            
+        Returns:
+            Tuple of (average_loss, metrics_dict)
+        """
+        if self.model is None or self.train_loader is None:
+            raise RuntimeError("Model or data not loaded")
+        
+        self.model.train()
+        epoch_loss = 0.0
+        correct = 0
+        total = 0
+        batch_count = 0
+        
+        # Track which batch ID we're processing
+        current_batch_idx = 0
+        batches_per_shard = len(self.train_loader) // len(batch_ids) if batch_ids else len(self.train_loader)
+        
+        pbar = tqdm(self.train_loader, desc=f"Epoch {epoch + 1}")
+        
+        for batch_idx, (data, target) in enumerate(pbar):
+            # Move data to device
+            data = data.to(self.device)
+            target = target.to(self.device)
+            
+            # Zero gradients
+            self.optimizer.zero_grad()
+            
+            # Forward pass
+            if self.scaler:
+                # Mixed precision training
+                with autocast():
+                    output = self.model(data)
+                    loss = self.criterion(output, target)
+                
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                # Regular training
+                output = self.model(data)
+                loss = self.criterion(output, target)
+                loss.backward()
+                self.optimizer.step()
+            
+            # Update metrics
+            epoch_loss += loss.item()
+            _, predicted = torch.max(output.data, 1)
+            total += target.size(0)
+            correct += (predicted == target).sum().item()
+            batch_count += 1
+            
+            # Update progress bar
+            avg_loss = epoch_loss / batch_count
+            accuracy = 100.0 * correct / total
+            pbar.set_postfix({
+                "loss": f"{avg_loss:.4f}",
+                "acc": f"{accuracy:.2f}%"
+            })
+            
+            # Report to orchestrator every N batches or at the end of a shard
+            if self.orchestrator_client and batch_ids and (batch_idx + 1) % batches_per_shard == 0:
+                if current_batch_idx < len(batch_ids):
+                    batch_id = batch_ids[current_batch_idx]
+                    try:
+                        await self.orchestrator_client.report_batch_complete(
+                            job_id=job_id,
+                            batch_id=batch_id,
+                            epoch=epoch,
+                            loss=avg_loss,
+                            accuracy=accuracy,
+                            samples_processed=total,
+                            training_time=0.0  # Could add timer here
+                        )
+                        logger.debug(f"Reported completion for batch {batch_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to report batch completion: {e}")
+                    
+                    current_batch_idx += 1
+        
+        # Calculate final metrics
+        avg_loss = epoch_loss / batch_count if batch_count > 0 else 0
+        accuracy = 100.0 * correct / total if total > 0 else 0
+        
+        metrics = {
+            "accuracy": accuracy,
+            "correct": correct,
+            "total": total
+        }
+        
+        return avg_loss, metrics
+    
+    def _initialize_training_minimal(
+        self,
+        model_id: str
     ) -> None:
-        """Initialize training components
+        """Initialize training components for orchestrated mode (minimal version)
+        
+        This skips data loading since data_paths are provided externally.
         
         Args:
             model_id: Model ID
-            checkpoint_path: Optional checkpoint to resume from
         """
-        logger.info("Initializing training components...")
+        logger.info("Initializing training components (minimal for orchestrated mode)...")
         
         # Store model ID
         self.model_id = model_id
@@ -213,20 +367,13 @@ class Trainer:
         # Load model definition
         self._load_model(model_id)
         
-        # Load data
-        self._load_data(model_id)
-        
         # Initialize optimizer
         self._initialize_optimizer()
         
-        # Load checkpoint if provided
-        if checkpoint_path:
-            self._load_checkpoint(checkpoint_path)
-        else:
-            # Fetch initial weights from Parameter Server
-            self._fetch_weights(model_id)
+        # Fetch initial weights from Parameter Server
+        self._fetch_weights(model_id)
         
-        logger.info("Training initialization complete")
+        logger.info("Training initialization complete (orchestrated mode)")
     
     def _load_model(self, model_id: str) -> None:
         """Load model definition
@@ -236,17 +383,21 @@ class Trainer:
         """
         logger.info(f"Loading model definition for {model_id}")
         
-        # In production, would get model source from API
-        # For now, use example model
-        example_model_path = Path(__file__).parent.parent.parent / "examples" / "example_model.py"
+        # Require model path from Model Registry (orchestrated mode only)
+        if not self.model_path or not self.model_path.exists():
+            raise ValueError(
+                f"Model path not provided or does not exist. "
+                f"Models must be downloaded from Model Registry. "
+                f"Expected path: {self.model_path}"
+            )
         
-        if not example_model_path.exists():
-            raise FileNotFoundError(f"Model file not found: {example_model_path}")
+        logger.info(f"Using model from Model Registry: {self.model_path}")
+        model_source = str(self.model_path)
         
         # Load model
         model_loader = ModelLoader(models_dir=self.config.storage.models_dir)
         create_model, create_dataloader, metadata = model_loader.load_model(
-            model_source=str(example_model_path),
+            model_source=model_source,
             model_id=model_id
         )
         
@@ -260,33 +411,70 @@ class Trainer:
         
         logger.info(f"Model loaded: {metadata['name']} v{metadata['version']}")
     
-    def _load_data(self, model_id: str) -> None:
-        """Load training data with optimized settings
+    def _create_dataloader_from_shards(
+        self,
+        shard_paths: List[Path],
+        batch_size: int,
+        num_workers: int
+    ) -> torch.utils.data.DataLoader:
+        """
+        Create DataLoader from downloaded shard paths
         
         Args:
-            model_id: Model ID
+            shard_paths: List of paths to extracted shard directories
+            batch_size: Batch size for DataLoader
+            num_workers: Number of worker processes
+            
+        Returns:
+            DataLoader instance
         """
-        logger.info("Loading training data...")
+        from torch.utils.data import DataLoader, ConcatDataset
+        from torchvision import datasets, transforms
         
-        # In production, would download data shard from Dataset Sharder
-        # For now, use the create_dataloader function from model definition
+        logger.info(f"Creating DataLoader from {len(shard_paths)} shards")
         
-        if self.create_dataloader_fn is None:
-            raise ValueError("No create_dataloader function available")
+        # Default transform (can be customized per model)
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
         
-        # Create training dataloader with optimized settings
-        # The create_dataloader_fn from model definition returns a DataLoader
-        # We use it directly since it may have model-specific settings
-        self.train_loader = self.create_dataloader_fn(
-            data_path=str(self.config.storage.data_dir),
-            batch_size=self.config.training.batch_size,
-            is_train=True,
-            num_workers=self.config.training.num_workers
+        # Load each shard as a dataset
+        shard_datasets = []
+        for shard_path in shard_paths:
+            try:
+                # Assume ImageFolder format for now
+                # TODO: Support other formats based on metadata
+                dataset = datasets.ImageFolder(
+                    root=str(shard_path),
+                    transform=transform
+                )
+                shard_datasets.append(dataset)
+                logger.debug(f"Loaded shard from {shard_path}: {len(dataset)} samples")
+                
+            except Exception as e:
+                logger.warning(f"Failed to load shard from {shard_path}: {e}")
+                continue
+        
+        if not shard_datasets:
+            raise ValueError("No valid shards could be loaded")
+        
+        # Combine all shards into one dataset
+        combined_dataset = ConcatDataset(shard_datasets)
+        
+        logger.info(f"Combined dataset: {len(combined_dataset)} total samples")
+        
+        # Create DataLoader
+        dataloader = DataLoader(
+            combined_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=torch.cuda.is_available()
         )
         
-        logger.info(f"Data loaded: {len(self.train_loader)} batches")
-        logger.info(f"DataLoader settings: batch_size={self.config.training.batch_size}, "
-                   f"num_workers={self.config.training.num_workers}")
+        return dataloader
+
     
     def _initialize_optimizer(self) -> None:
         """Initialize optimizer"""

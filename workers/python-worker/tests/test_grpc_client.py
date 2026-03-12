@@ -29,8 +29,7 @@ from meshml_worker.config import ParameterServerConfig
 def server_config():
     """Create Parameter Server configuration"""
     return ParameterServerConfig(
-        url="http://localhost:8000",
-        grpc_url="localhost:50051",
+        url="http://localhost:8003",
         timeout=30,
         max_retries=3
     )
@@ -89,6 +88,7 @@ class TestConnectionManagement:
         assert grpc_client.channel is not None
         mock_grpc.insecure_channel.assert_called_once()
     
+    @pytest.mark.skip(reason="gRPC is now a required dependency")
     def test_connect_without_grpc(self, grpc_client):
         """Test connection failure when gRPC not installed"""
         # grpc not imported, should fail

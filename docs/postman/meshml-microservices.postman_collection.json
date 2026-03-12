@@ -1,0 +1,3948 @@
+{
+  "info": {
+    "name": "MeshML Microservices",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "api-gateway",
+      "item": [
+        {
+          "name": "POST /api/auth/register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"string\",\n  \"full_name\": \"string\"\n}"
+            }
+          }
+        },
+        {
+          "name": "POST /api/auth/login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"string\"\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/auth/me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/auth/me"
+          }
+        },
+        {
+          "name": "POST /api/auth/refresh",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/auth/refresh"
+          }
+        },
+        {
+          "name": "POST /api/groups",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/groups",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"description\": \"string\",\n  \"is_public\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/groups",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/groups"
+          }
+        },
+        {
+          "name": "GET /api/groups/public",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/groups/public"
+          }
+        },
+        {
+          "name": "GET /api/groups/{group_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/groups/{group_id}"
+          }
+        },
+        {
+          "name": "POST /api/groups/{group_id}/join",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/groups/{group_id}/join",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"worker_id\": \"string\"\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/groups/{group_id}/members",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/groups/{group_id}/members"
+          }
+        },
+        {
+          "name": "PUT /api/groups/{group_id}/members/{user_id}/role",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/groups/{group_id}/members/{user_id}/role",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"string\"\n}"
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/groups/{group_id}/members/{user_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/groups/{group_id}/members/{user_id}"
+          }
+        },
+        {
+          "name": "POST /api/invitations/{group_id}/invitations",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/invitations/{group_id}/invitations",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"max_uses\": 0,\n  \"expires_in_hours\": 0\n}"
+            }
+          }
+        },
+        {
+          "name": "POST /api/invitations/accept",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/invitations/accept",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"worker_id\": \"string\",\n  \"invitation_code\": \"string\"\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/invitations/{code}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/invitations/{code}"
+          }
+        },
+        {
+          "name": "DELETE /api/invitations/{code}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/invitations/{code}"
+          }
+        },
+        {
+          "name": "POST /api/jobs",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/jobs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"group_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"model_id\": \"string\",\n  \"dataset_id\": \"string\",\n  \"config\": {}\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/jobs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/jobs"
+          }
+        },
+        {
+          "name": "GET /api/jobs/{job_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/jobs/{job_id}"
+          }
+        },
+        {
+          "name": "DELETE /api/jobs/{job_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/jobs/{job_id}"
+          }
+        },
+        {
+          "name": "GET /api/jobs/{job_id}/progress",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/jobs/{job_id}/progress"
+          }
+        },
+        {
+          "name": "GET /api/monitoring/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/monitoring/health"
+          }
+        },
+        {
+          "name": "GET /api/monitoring/metrics/realtime",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/monitoring/metrics/realtime"
+          }
+        },
+        {
+          "name": "GET /api/monitoring/workers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/monitoring/workers"
+          }
+        },
+        {
+          "name": "GET /api/monitoring/groups/{group_id}/stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/monitoring/groups/{group_id}/stats"
+          }
+        },
+        {
+          "name": "GET /api/ps/parameters/{model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/ps/parameters/{model_id}"
+          }
+        },
+        {
+          "name": "GET /api/ps/parameters/{model_id}/version",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/ps/parameters/{model_id}/version"
+          }
+        },
+        {
+          "name": "POST /api/ps/gradients/submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/ps/gradients/submit"
+          }
+        },
+        {
+          "name": "GET /api/ps/gradients/pending/{model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/ps/gradients/pending/{model_id}"
+          }
+        },
+        {
+          "name": "POST /api/workers/register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/workers/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"worker_id\": \"string\",\n  \"capabilities\": {},\n  \"user_email\": \"user@example.com\",\n  \"status\": \"string\"\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/workers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/workers"
+          }
+        },
+        {
+          "name": "GET /api/workers/{worker_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/workers/{worker_id}"
+          }
+        },
+        {
+          "name": "PUT /api/workers/{worker_id}/capabilities",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/workers/{worker_id}/capabilities",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capabilities\": {}\n}"
+            }
+          }
+        },
+        {
+          "name": "POST /api/workers/{worker_id}/heartbeat",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/workers/{worker_id}/heartbeat"
+          }
+        },
+        {
+          "name": "DELETE /api/workers/{worker_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/workers/{worker_id}"
+          }
+        },
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/health"
+          }
+        },
+        {
+          "name": "GET /",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dataset-sharder",
+      "item": [
+        {
+          "name": "POST /api/v1/distribution/assign",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/api/v1/distribution/assign",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/v1/distribution/workers/{worker_id}/assignment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/api/v1/distribution/workers/{worker_id}/assignment"
+          }
+        },
+        {
+          "name": "GET /api/v1/distribution/workers/{worker_id}/batches",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/api/v1/distribution/workers/{worker_id}/batches"
+          }
+        },
+        {
+          "name": "GET /api/v1/distribution/batches/{batch_id}/assignment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/api/v1/distribution/batches/{batch_id}/assignment"
+          }
+        },
+        {
+          "name": "GET /api/v1/distribution/workers/{worker_id}/batches/{batch_id}/download",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/api/v1/distribution/workers/{worker_id}/batches/{batch_id}/download"
+          }
+        },
+        {
+          "name": "POST /api/v1/distribution/workers/{worker_id}/batches/{batch_id}/status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/api/v1/distribution/workers/{worker_id}/batches/{batch_id}/status",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /api/v1/distribution/batches/{batch_id}/reassign",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/api/v1/distribution/batches/{batch_id}/reassign",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /api/v1/distribution/reassign-failed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/api/v1/distribution/reassign-failed",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/v1/distribution/stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/api/v1/distribution/stats"
+          }
+        },
+        {
+          "name": "GET /api/v1/distribution/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/api/v1/distribution/health"
+          }
+        },
+        {
+          "name": "GET /",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/"
+          }
+        },
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{dataset_sharder_base_url}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "task-orchestrator",
+      "item": [
+        {
+          "name": "POST /assignment/jobs/assign",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/assignment/jobs/assign",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /assignment/jobs/assign/batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/assignment/jobs/assign/batch",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /assignment/load/worker/{worker_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/assignment/load/worker/{worker_id}"
+          }
+        },
+        {
+          "name": "GET /assignment/load/cluster",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/assignment/load/cluster"
+          }
+        },
+        {
+          "name": "POST /assignment/load/rebalance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/assignment/load/rebalance",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /assignment/load/rebalance/start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/assignment/load/rebalance/start",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /assignment/load/rebalance/stop",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/assignment/load/rebalance/stop",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /assignment/stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/assignment/stats"
+          }
+        },
+        {
+          "name": "GET /assignment/strategies",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/assignment/strategies"
+          }
+        },
+        {
+          "name": "GET /assignment/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/assignment/health"
+          }
+        },
+        {
+          "name": "POST /discovery/workers/register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/workers/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "DELETE /discovery/workers/{worker_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/workers/{worker_id}"
+          }
+        },
+        {
+          "name": "GET /discovery/workers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/workers"
+          }
+        },
+        {
+          "name": "GET /discovery/workers/available",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/workers/available"
+          }
+        },
+        {
+          "name": "POST /discovery/pools",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/pools",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /discovery/pools/{group_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/pools/{group_id}"
+          }
+        },
+        {
+          "name": "GET /discovery/pools",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/pools"
+          }
+        },
+        {
+          "name": "DELETE /discovery/pools/{group_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/pools/{group_id}"
+          }
+        },
+        {
+          "name": "GET /discovery/pools/{group_id}/stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/pools/{group_id}/stats"
+          }
+        },
+        {
+          "name": "GET /discovery/match/{job_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/match/{job_id}"
+          }
+        },
+        {
+          "name": "POST /discovery/assign",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/assign",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /discovery/stats/distribution",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/stats/distribution"
+          }
+        },
+        {
+          "name": "GET /discovery/stats/capacity",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/stats/capacity"
+          }
+        },
+        {
+          "name": "GET /discovery/stats/scaling-needs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/stats/scaling-needs"
+          }
+        },
+        {
+          "name": "GET /discovery/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/discovery/health"
+          }
+        },
+        {
+          "name": "POST /fault-tolerance/failures/detect",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/failures/detect",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /fault-tolerance/failures/{failure_id}/recover",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/failures/{failure_id}/recover",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /fault-tolerance/failures",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/failures"
+          }
+        },
+        {
+          "name": "GET /fault-tolerance/circuit-breakers/{resource_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/circuit-breakers/{resource_id}"
+          }
+        },
+        {
+          "name": "GET /fault-tolerance/circuit-breakers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/circuit-breakers"
+          }
+        },
+        {
+          "name": "POST /fault-tolerance/circuit-breakers/{resource_id}/reset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/circuit-breakers/{resource_id}/reset",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /fault-tolerance/checkpoints",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/checkpoints",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /fault-tolerance/checkpoints/{job_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/checkpoints/{job_id}"
+          }
+        },
+        {
+          "name": "GET /fault-tolerance/checkpoints/{job_id}/latest",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/checkpoints/{job_id}/latest"
+          }
+        },
+        {
+          "name": "GET /fault-tolerance/dead-letter",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/dead-letter"
+          }
+        },
+        {
+          "name": "POST /fault-tolerance/dead-letter/{failure_id}/retry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/dead-letter/{failure_id}/retry",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "DELETE /fault-tolerance/dead-letter/purge",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/dead-letter/purge"
+          }
+        },
+        {
+          "name": "POST /fault-tolerance/monitoring/start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/monitoring/start",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /fault-tolerance/monitoring/stop",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/monitoring/stop",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /fault-tolerance/retry-scheduler/start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/retry-scheduler/start",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /fault-tolerance/retry-scheduler/stop",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/retry-scheduler/stop",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /fault-tolerance/stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/stats"
+          }
+        },
+        {
+          "name": "GET /fault-tolerance/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/fault-tolerance/health"
+          }
+        },
+        {
+          "name": "POST /jobs/submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/submit",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /jobs/{job_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/{job_id}"
+          }
+        },
+        {
+          "name": "GET /jobs/",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/"
+          }
+        },
+        {
+          "name": "GET /jobs/next/available",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/next/available"
+          }
+        },
+        {
+          "name": "POST /jobs/{job_id}/assign",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/{job_id}/assign",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /jobs/{job_id}/release",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/{job_id}/release",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "PUT /jobs/{job_id}/progress",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/{job_id}/progress",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /jobs/{job_id}/complete",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/{job_id}/complete",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /jobs/{job_id}/fail",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/{job_id}/fail",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /jobs/{job_id}/validation-result",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/{job_id}/validation-result",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "DELETE /jobs/{job_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/{job_id}"
+          }
+        },
+        {
+          "name": "GET /jobs/stats/summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/stats/summary"
+          }
+        },
+        {
+          "name": "POST /jobs/maintenance/cleanup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/maintenance/cleanup",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /jobs/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/jobs/health"
+          }
+        },
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/health"
+          }
+        },
+        {
+          "name": "GET /",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{task_orchestrator_base_url}}/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "parameter-server",
+      "item": [
+        {
+          "name": "POST /convergence/metrics",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/convergence/metrics",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"request\": {\n    \"model_id\": \"string\",\n    \"iteration\": 0,\n    \"loss\": 0.0,\n    \"metrics\": {},\n    \"gradient_norm\": 0.0,\n    \"learning_rate\": 0.0,\n    \"num_samples\": 0\n  },\n  \"config\": {\n    \"loss_threshold\": 0.0,\n    \"loss_patience\": 0,\n    \"loss_min_delta\": 0.0,\n    \"target_metrics\": {},\n    \"metric_patience\": 0,\n    \"metric_min_delta\": 0.0,\n    \"enable_plateau_detection\": false,\n    \"plateau_patience\": 0,\n    \"plateau_threshold\": 0.0,\n    \"gradient_norm_threshold\": 0.0,\n    \"max_iterations\": 0,\n    \"warmup_iterations\": 0,\n    \"window_size\": 0,\n    \"enable_early_stopping\": false,\n    \"early_stop_patience\": 0\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /convergence/summary/{model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/convergence/summary/{model_id}"
+          }
+        },
+        {
+          "name": "GET /convergence/history/{model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/convergence/history/{model_id}"
+          }
+        },
+        {
+          "name": "DELETE /convergence/reset/{model_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/convergence/reset/{model_id}"
+          }
+        },
+        {
+          "name": "GET /convergence/phases",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/convergence/phases"
+          }
+        },
+        {
+          "name": "GET /convergence/stats/summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/convergence/stats/summary"
+          }
+        },
+        {
+          "name": "GET /convergence/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/convergence/health"
+          }
+        },
+        {
+          "name": "POST /distribution/pull",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/distribution/pull",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model_id\": \"string\",\n  \"worker_id\": \"string\",\n  \"current_version\": 0,\n  \"requested_version\": 0,\n  \"delta_only\": false,\n  \"compression\": \"none\",\n  \"format_type\": \"pytorch\",\n  \"parameter_names\": [\n    \"string\"\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "POST /distribution/broadcast",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/distribution/broadcast",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model_id\": \"string\",\n  \"worker_ids\": [\n    \"string\"\n  ],\n  \"version_id\": 0,\n  \"compression\": \"none\",\n  \"format_type\": \"pytorch\"\n}"
+            }
+          }
+        },
+        {
+          "name": "POST /distribution/subscribe",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/distribution/subscribe",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model_id\": \"string\",\n  \"worker_id\": \"string\"\n}"
+            }
+          }
+        },
+        {
+          "name": "DELETE /distribution/subscribe",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/distribution/subscribe",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model_id\": \"string\",\n  \"worker_id\": \"string\"\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /distribution/subscriptions/{model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/distribution/subscriptions/{model_id}"
+          }
+        },
+        {
+          "name": "GET /distribution/history",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/distribution/history"
+          }
+        },
+        {
+          "name": "GET /distribution/formats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/distribution/formats"
+          }
+        },
+        {
+          "name": "GET /distribution/stats/summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/distribution/stats/summary"
+          }
+        },
+        {
+          "name": "GET /distribution/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/distribution/health"
+          }
+        },
+        {
+          "name": "POST /gradients/submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/gradients/submit",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"worker_id\": \"string\",\n  \"model_id\": \"string\",\n  \"version_id\": 0,\n  \"gradients\": {},\n  \"num_samples\": 0,\n  \"loss\": 0.0,\n  \"metrics\": {},\n  \"metadata\": {}\n}"
+            }
+          }
+        },
+        {
+          "name": "POST /gradients/aggregate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/gradients/aggregate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model_id\": \"string\",\n  \"current_version\": 0,\n  \"strategy\": \"fedavg\",\n  \"clipping_strategy\": \"none\",\n  \"clip_value\": 0.0,\n  \"clip_norm\": 0.0,\n  \"staleness_weight_decay\": 0.0,\n  \"max_staleness\": 0,\n  \"normalize_gradients\": false,\n  \"momentum_factor\": 0.0,\n  \"adaptive_threshold\": 0.0,\n  \"clear_buffer\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /gradients/pending/{model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/gradients/pending/{model_id}"
+          }
+        },
+        {
+          "name": "DELETE /gradients/pending/{model_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/gradients/pending/{model_id}"
+          }
+        },
+        {
+          "name": "GET /gradients/history",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/gradients/history"
+          }
+        },
+        {
+          "name": "GET /gradients/strategies",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/gradients/strategies"
+          }
+        },
+        {
+          "name": "GET /gradients/stats/summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/gradients/stats/summary"
+          }
+        },
+        {
+          "name": "GET /gradients/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/gradients/health"
+          }
+        },
+        {
+          "name": "POST /models/initialize",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/models/initialize",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model_id\": \"string\",\n  \"gcs_model_path\": \"string\",\n  \"initialization_strategy\": \"random\",\n  \"pretrained_weights_path\": \"string\",\n  \"device\": \"string\",\n  \"seed\": 0,\n  \"model_kwargs\": {}\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /models/{model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/models/{model_id}"
+          }
+        },
+        {
+          "name": "GET /models/",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/models/"
+          }
+        },
+        {
+          "name": "DELETE /models/{model_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/models/{model_id}"
+          }
+        },
+        {
+          "name": "POST /models/{model_id}/reinitialize",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/models/{model_id}/reinitialize",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"initialization_strategy\": \"random\"\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /models/stats/summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/models/stats/summary"
+          }
+        },
+        {
+          "name": "GET /models/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/models/health"
+          }
+        },
+        {
+          "name": "GET /parameters/{model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/{model_id}"
+          }
+        },
+        {
+          "name": "GET /parameters/{model_id}/names",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/{model_id}/names"
+          }
+        },
+        {
+          "name": "GET /parameters/{model_id}/version",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/{model_id}/version"
+          }
+        },
+        {
+          "name": "GET /parameters/{model_id}/versions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/{model_id}/versions"
+          }
+        },
+        {
+          "name": "POST /parameters/{model_id}/checkpoints",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/{model_id}/checkpoints",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"checkpoint_type\": \"manual\",\n  \"checkpoint_id\": \"string\",\n  \"metrics\": {},\n  \"metadata\": {}\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /parameters/{model_id}/checkpoints",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/{model_id}/checkpoints"
+          }
+        },
+        {
+          "name": "POST /parameters/{model_id}/checkpoints/{checkpoint_id}/restore",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/{model_id}/checkpoints/{checkpoint_id}/restore"
+          }
+        },
+        {
+          "name": "DELETE /parameters/{model_id}/checkpoints/{checkpoint_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/{model_id}/checkpoints/{checkpoint_id}"
+          }
+        },
+        {
+          "name": "GET /parameters/{model_id}/delta",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/{model_id}/delta"
+          }
+        },
+        {
+          "name": "GET /parameters/stats/summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/stats/summary"
+          }
+        },
+        {
+          "name": "GET /parameters/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/parameters/health"
+          }
+        },
+        {
+          "name": "POST /sync/workers/register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/sync/workers/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"worker_id\": \"string\",\n  \"model_id\": \"string\",\n  \"metadata\": {}\n}"
+            }
+          }
+        },
+        {
+          "name": "DELETE /sync/workers/{worker_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/sync/workers/{worker_id}"
+          }
+        },
+        {
+          "name": "GET /sync/workers/{worker_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/sync/workers/{worker_id}"
+          }
+        },
+        {
+          "name": "GET /sync/workers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/sync/workers"
+          }
+        },
+        {
+          "name": "POST /sync/submit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/sync/submit",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"worker_id\": \"string\",\n  \"model_id\": \"string\",\n  \"version_id\": 0,\n  \"gradients\": {},\n  \"num_samples\": 0,\n  \"loss\": 0.0,\n  \"metrics\": {},\n  \"metadata\": {},\n  \"sync_config\": {\n    \"mode\": \"synchronous\",\n    \"min_workers\": 0,\n    \"max_workers\": 0,\n    \"sync_timeout_seconds\": 0.0,\n    \"worker_quorum\": 0.0,\n    \"max_staleness\": 0,\n    \"quorum_timeout_seconds\": 0.0,\n    \"async_batch_size\": 0,\n    \"async_timeout_seconds\": 0.0,\n    \"worker_timeout_seconds\": 0.0,\n    \"auto_exclude_timeouts\": false,\n    \"aggregation_strategy\": \"fedavg\",\n    \"clipping_strategy\": \"none\",\n    \"clip_value\": 0.0,\n    \"clip_norm\": 0.0,\n    \"staleness_weight_decay\": 0.0,\n    \"normalize_gradients\": false\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /sync/rounds/current/{model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/sync/rounds/current/{model_id}"
+          }
+        },
+        {
+          "name": "GET /sync/rounds/history",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/sync/rounds/history"
+          }
+        },
+        {
+          "name": "GET /sync/modes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/sync/modes"
+          }
+        },
+        {
+          "name": "GET /sync/stats/summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/sync/stats/summary"
+          }
+        },
+        {
+          "name": "GET /sync/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/sync/health"
+          }
+        },
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/health"
+          }
+        },
+        {
+          "name": "GET /",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{parameter_server_base_url}}/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "model-registry",
+      "item": [
+        {
+          "name": "GET /api/v1/lifecycle/states",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/lifecycle/states"
+          }
+        },
+        {
+          "name": "GET /api/v1/lifecycle/state/{state}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/lifecycle/state/{state}"
+          }
+        },
+        {
+          "name": "POST /api/v1/lifecycle/{model_id}/validate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/lifecycle/{model_id}/validate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /api/v1/lifecycle/{model_id}/mark-ready",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/lifecycle/{model_id}/mark-ready",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /api/v1/lifecycle/{model_id}/mark-failed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/lifecycle/{model_id}/mark-failed",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /api/v1/lifecycle/{model_id}/deprecate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/lifecycle/{model_id}/deprecate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/v1/lifecycle/{model_id}/can-transition/{target_state}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/lifecycle/{model_id}/can-transition/{target_state}"
+          }
+        },
+        {
+          "name": "POST /api/v1/models/",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/models/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/v1/models/{model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/models/{model_id}"
+          }
+        },
+        {
+          "name": "PUT /api/v1/models/{model_id}",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/models/{model_id}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/v1/models/{model_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/models/{model_id}"
+          }
+        },
+        {
+          "name": "POST /api/v1/models/{model_id}/upload-url",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/models/{model_id}/upload-url",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "POST /api/v1/models/{model_id}/upload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/models/{model_id}/upload",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/v1/models/{model_id}/download",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/models/{model_id}/download"
+          }
+        },
+        {
+          "name": "POST /api/v1/models/{model_id}/state",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/models/{model_id}/state",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/v1/search/models",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/search/models"
+          }
+        },
+        {
+          "name": "GET /api/v1/search/groups/{group_id}/models",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/search/groups/{group_id}/models"
+          }
+        },
+        {
+          "name": "GET /api/v1/search/users/{user_id}/models",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/search/users/{user_id}/models"
+          }
+        },
+        {
+          "name": "GET /api/v1/search/architecture-types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/search/architecture-types"
+          }
+        },
+        {
+          "name": "GET /api/v1/search/dataset-types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/search/dataset-types"
+          }
+        },
+        {
+          "name": "GET /api/v1/search/models/{model_id}/usage",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/search/models/{model_id}/usage"
+          }
+        },
+        {
+          "name": "GET /api/v1/search/popular",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/search/popular"
+          }
+        },
+        {
+          "name": "GET /api/v1/search/recent",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/search/recent"
+          }
+        },
+        {
+          "name": "POST /api/v1/versions/",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/versions/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/v1/versions/{parent_model_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/versions/{parent_model_id}"
+          }
+        },
+        {
+          "name": "GET /api/v1/versions/{parent_model_id}/latest",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/versions/{parent_model_id}/latest"
+          }
+        },
+        {
+          "name": "GET /api/v1/versions/{model_id}/history",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/versions/{model_id}/history"
+          }
+        },
+        {
+          "name": "GET /api/v1/versions/{parent_model_id}/count",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/versions/{parent_model_id}/count"
+          }
+        },
+        {
+          "name": "GET /api/v1/versions/{parent_model_id}/suggest-next",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/versions/{parent_model_id}/suggest-next"
+          }
+        },
+        {
+          "name": "POST /api/v1/versions/increment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/api/v1/versions/increment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}"
+            }
+          }
+        },
+        {
+          "name": "GET /",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/"
+          }
+        },
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{model_registry_base_url}}/health"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "api_gateway_base_url",
+      "value": "http://34.69.215.43"
+    },
+    {
+      "key": "dataset_sharder_base_url",
+      "value": "http://34.118.236.23:8001"
+    },
+    {
+      "key": "task_orchestrator_base_url",
+      "value": "http://34.118.233.52:8002"
+    },
+    {
+      "key": "parameter_server_base_url",
+      "value": "http://34.61.230.151:8003"
+    },
+    {
+      "key": "model_registry_base_url",
+      "value": "http://34.118.234.37:8004"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ]
+}

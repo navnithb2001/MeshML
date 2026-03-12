@@ -3,7 +3,9 @@ CLI for MeshML Worker
 
 Commands:
 - init: Initialize worker configuration
-- train: Start training on a model
+- run: Run worker with platform integration (Task Orchestrator, Model Registry, Dataset Sharder)
+- login: Login to MeshML platform
+- join: Join a group using invitation code
 - status: Check worker status
 - config: Manage configuration
 """
@@ -18,7 +20,7 @@ from meshml_worker.main import MeshMLWorker
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(version="0.2.0")
 def main() -> None:
     """MeshML Worker - Federated Learning Worker"""
     pass
@@ -27,13 +29,13 @@ def main() -> None:
 @main.command()
 @click.option(
     "--parameter-server-url",
-    default="http://localhost:8000",
+    default="http://localhost:8003",
     help="Parameter Server HTTP URL"
 )
 @click.option(
-    "--grpc-url",
+    "--task-orchestrator-url",
     default="localhost:50051",
-    help="Parameter Server gRPC URL"
+    help="Task Orchestrator gRPC URL"
 )
 @click.option(
     "--worker-id",
@@ -70,7 +72,7 @@ def main() -> None:
 )
 def init(
     parameter_server_url: str,
-    grpc_url: str,
+    task_orchestrator_url: str,
     worker_id: Optional[str],
     worker_name: str,
     device: str,
@@ -93,7 +95,7 @@ def init(
     config.worker.id = worker_id
     config.worker.name = worker_name
     config.parameter_server.url = parameter_server_url
-    config.parameter_server.grpc_url = grpc_url
+    config.task_orchestrator.grpc_url = task_orchestrator_url
     config.training.device = device
     config.training.batch_size = batch_size
     config.storage.base_dir = config_dir
@@ -106,11 +108,13 @@ def init(
     click.echo(f"  Worker ID: {config.worker.id}")
     click.echo(f"  Config: {config_path}")
     click.echo(f"  Parameter Server: {parameter_server_url}")
+    click.echo(f"  Task Orchestrator: {task_orchestrator_url}")
     click.echo(f"  Device: {device}")
     click.echo()
     click.echo("Next steps:")
     click.echo("  1. Review configuration: cat .meshml/config.yaml")
-    click.echo("  2. Start training: meshml-worker train --model-id <model-id>")
+    click.echo("  2. Login: meshml-worker login")
+    click.echo("  3. Run worker: meshml-worker run --user-id <user_id>")
 
 
 @main.command()
@@ -157,7 +161,7 @@ def login(email: str, password: str, api_url: str) -> None:
         click.echo()
         click.echo("Next steps:")
         click.echo("  1. Join a group: meshml-worker join --invitation-code <code> --worker-id <id>")
-        click.echo("  2. Start training: meshml-worker start")
+        click.echo("  2. Start training: meshml-worker run --user-id <user_id>")
         
     except Exception as e:
         click.echo(f"\n✗ Login failed: {e}", err=True)
@@ -212,18 +216,20 @@ def join(invitation_code: str, worker_id: str, api_url: str) -> None:
         click.echo(f"  User: {registration.user_email}")
         click.echo()
         click.echo("Next steps:")
-        click.echo("  1. Start training: meshml-worker start")
+        click.echo("  1. Start training: meshml-worker run --user-id <user_id>")
         
     except Exception as e:
         click.echo(f"\n✗ Failed to join group: {e}", err=True)
         sys.exit(1)
 
 
+
+
 @main.command()
 @click.option(
-    "--model-id",
+    "--user-id",
     required=True,
-    help="Model ID to train"
+    help="User ID for authentication with Task Orchestrator"
 )
 @click.option(
     "--config",
@@ -232,10 +238,9 @@ def join(invitation_code: str, worker_id: str, api_url: str) -> None:
     help="Configuration file path"
 )
 @click.option(
-    "--epochs",
-    type=int,
+    "--preferred-jobs",
     default=None,
-    help="Number of training epochs (overrides config)"
+    help="Comma-separated list of preferred job IDs (optional)"
 )
 @click.option(
     "--batch-size",
@@ -249,27 +254,26 @@ def join(invitation_code: str, worker_id: str, api_url: str) -> None:
     default=None,
     help="Training device (overrides config)"
 )
-@click.option(
-    "--checkpoint",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Resume from checkpoint"
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Dry run (validate setup without training)"
-)
-def start(
-    model_id: str,
+def run(
+    user_id: str,
     config: Optional[Path],
-    epochs: Optional[int],
+    preferred_jobs: Optional[str],
     batch_size: Optional[int],
-    device: Optional[str],
-    checkpoint: Optional[Path],
-    dry_run: bool
+    device: Optional[str]
 ) -> None:
-    """Start training on a model"""
+    """Run worker with full Task Orchestrator integration (production mode)
+    
+    This command:
+    1. Registers with Task Orchestrator
+    2. Requests task assignment
+    3. Downloads model from Model Registry
+    4. Downloads data from Dataset Sharder
+    5. Trains and reports progress
+    
+    Example:
+        meshml-worker run --user-id user_123
+    """
+    import asyncio
     
     # Load configuration
     try:
@@ -284,28 +288,46 @@ def start(
     if device is not None:
         worker_config.training.device = device
     
-    click.echo(f"Starting training on model: {model_id}")
+    # Parse preferred jobs
+    preferred_job_ids = None
+    if preferred_jobs:
+        preferred_job_ids = [j.strip() for j in preferred_jobs.split(",")]
+    
+    click.echo("=" * 60)
+    click.echo("MeshML Worker - Orchestrated Mode")
+    click.echo("=" * 60)
     click.echo(f"Worker ID: {worker_config.worker.id}")
+    click.echo(f"User ID: {user_id}")
     click.echo(f"Device: {worker_config.training.device}")
     click.echo(f"Batch size: {worker_config.training.batch_size}")
-    
-    if dry_run:
-        click.echo("\n[DRY RUN] Setup validation passed ✓")
-        return
+    click.echo()
+    click.echo("Service Endpoints:")
+    click.echo(f"  Task Orchestrator: {worker_config.task_orchestrator.grpc_url}")
+    click.echo(f"  Model Registry: {worker_config.model_registry.url}")
+    click.echo(f"  Dataset Sharder: {worker_config.dataset_sharder.url}")
+    click.echo(f"  Parameter Server: {worker_config.parameter_server.url}")
+    click.echo("=" * 60)
+    click.echo()
     
     # Create and run worker
     try:
         worker = MeshMLWorker(worker_config)
-        worker.train(
-            model_id=model_id,
-            epochs=epochs,
-            checkpoint_path=checkpoint
-        )
+        
+        # Run orchestrated training with platform integration
+        asyncio.run(worker.run(
+            user_id=user_id,
+            preferred_job_ids=preferred_job_ids
+        ))
+        
+        click.echo("\n✓ Training completed successfully!")
+        
     except KeyboardInterrupt:
-        click.echo("\n\nTraining interrupted by user")
+        click.echo("\n\n✗ Training interrupted by user")
         sys.exit(0)
     except Exception as e:
-        click.echo(f"\nError during training: {e}", err=True)
+        click.echo(f"\n✗ Error during training: {e}", err=True)
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 

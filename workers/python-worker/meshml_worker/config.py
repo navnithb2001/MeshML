@@ -12,11 +12,38 @@ from pydantic import BaseModel, Field, field_validator
 class ParameterServerConfig(BaseModel):
     """Parameter Server configuration"""
     
-    url: str = Field(default="http://localhost:8000", description="Parameter Server URL")
-    grpc_url: str = Field(default="localhost:50051", description="gRPC server URL")
+    url: str = Field(default="http://localhost:8003", description="Parameter Server HTTP URL")
+    grpc_url: str = Field(default="localhost:50052", description="Parameter Server gRPC URL")
     timeout: int = Field(default=30, description="Request timeout in seconds")
     max_retries: int = Field(default=3, description="Maximum retry attempts")
     retry_delay: int = Field(default=5, description="Delay between retries in seconds")
+
+
+class DatasetSharderConfig(BaseModel):
+    """Dataset Sharder configuration"""
+    
+    url: str = Field(default="http://localhost:8001", description="Dataset Sharder URL")
+    timeout: int = Field(default=60, description="Request timeout in seconds")
+    max_retries: int = Field(default=3, description="Maximum retry attempts")
+    retry_delay: float = Field(default=2.0, description="Delay between retries in seconds")
+
+
+class TaskOrchestratorConfig(BaseModel):
+    """Task Orchestrator configuration"""
+    
+    grpc_url: str = Field(default="localhost:50051", description="Task Orchestrator gRPC URL")
+    user_id: str = Field(default="", description="User ID who owns this worker")
+    max_retries: int = Field(default=3, description="Maximum retry attempts")
+    retry_delay: float = Field(default=2.0, description="Delay between retries in seconds")
+
+
+class ModelRegistryConfig(BaseModel):
+    """Model Registry configuration"""
+    
+    url: str = Field(default="http://localhost:8004", description="Model Registry URL")
+    timeout: int = Field(default=60, description="Request timeout in seconds")
+    max_retries: int = Field(default=3, description="Maximum retry attempts")
+    retry_delay: float = Field(default=2.0, description="Delay between retries in seconds")
 
 
 class WorkerIdentityConfig(BaseModel):
@@ -93,6 +120,9 @@ class WorkerConfig(BaseModel):
     
     worker: WorkerIdentityConfig = Field(default_factory=WorkerIdentityConfig)
     parameter_server: ParameterServerConfig = Field(default_factory=ParameterServerConfig)
+    dataset_sharder: DatasetSharderConfig = Field(default_factory=DatasetSharderConfig)
+    task_orchestrator: TaskOrchestratorConfig = Field(default_factory=TaskOrchestratorConfig)
+    model_registry: ModelRegistryConfig = Field(default_factory=ModelRegistryConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
