@@ -44,7 +44,7 @@ rollback_deployment() {
     echo -e "${YELLOW}Rolling back all deployments to previous version...${NC}"
     
     # Only platform services (no workers!)
-    DEPLOYMENTS=("api-gateway" "dataset-sharder" "task-orchestrator" "parameter-server" "model-registry")
+    DEPLOYMENTS=("api-gateway" "dataset-sharder" "task-orchestrator" "parameter-server" "model-registry" "metrics-service")
     
     for deployment in "${DEPLOYMENTS[@]}"; do
         echo -e "${YELLOW}Rolling back $deployment...${NC}"
@@ -240,7 +240,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Only build microservices (NO workers - those run on student devices!)
-SERVICES=("api-gateway" "dataset-sharder" "task-orchestrator" "parameter-server" "model-registry")
+SERVICES=("api-gateway" "dataset-sharder" "task-orchestrator" "parameter-server" "model-registry" "metrics-service")
 BUILD_VERSION=$(date +%Y%m%d-%H%M%S)
 
 echo -e "${YELLOW}Building multi-platform images for linux/amd64 (GKE nodes)...${NC}"
@@ -324,6 +324,7 @@ kubectl apply -f $TEMP_MANIFEST_DIR/dataset-sharder.yaml
 kubectl apply -f $TEMP_MANIFEST_DIR/task-orchestrator.yaml
 kubectl apply -f $TEMP_MANIFEST_DIR/parameter-server.yaml
 kubectl apply -f $TEMP_MANIFEST_DIR/model-registry.yaml
+kubectl apply -f $TEMP_MANIFEST_DIR/metrics-service.yaml
 echo -e "${GREEN}✓ Platform services deployed${NC}"
 echo -e "${YELLOW}Note: Workers are NOT deployed to GKE - they run on student devices${NC}"
 echo ""
@@ -346,7 +347,7 @@ echo -e "${YELLOW}Step 11: Verifying deployments...${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 # Only platform services (workers run on student devices)
-DEPLOYMENTS=("api-gateway" "dataset-sharder" "task-orchestrator" "parameter-server" "model-registry")
+DEPLOYMENTS=("api-gateway" "dataset-sharder" "task-orchestrator" "parameter-server" "model-registry" "metrics-service")
 
 for deployment in "${DEPLOYMENTS[@]}"; do
     verify_deployment "$deployment" "meshml" || {

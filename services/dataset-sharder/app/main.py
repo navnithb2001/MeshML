@@ -18,7 +18,8 @@ import os
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.routers import distribution
+from app.routers import distribution, sharding
+from app.grpc_server import start_grpc_server
 from app.config import settings
 
 # Configure logging
@@ -53,6 +54,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(distribution.router, prefix="/api/v1", tags=["distribution"])
+app.include_router(sharding.router, prefix="/api/v1", tags=["sharding"])
 
 
 @app.get("/")
@@ -102,6 +104,15 @@ async def startup_event():
     # Create storage directories
     os.makedirs(settings.LOCAL_STORAGE_PATH, exist_ok=True)
     logger.info(f"✓ Local storage ready: {settings.LOCAL_STORAGE_PATH}")
+
+    grpc_host = os.getenv("GRPC_HOST", "0.0.0.0")
+    grpc_port = int(os.getenv("GRPC_PORT", "50053"))
+    try:
+        await start_grpc_server(app, grpc_host, grpc_port)
+        logger.info(f"✅ gRPC server ready on {grpc_host}:{grpc_port}")
+    except Exception as e:
+        logger.error(f"❌ Failed to start gRPC server: {e}")
+        logger.warning("⚠️ gRPC server not available")
     
     logger.info("✅ Dataset Sharder Service started successfully")
 
@@ -110,3 +121,10 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown"""
     logger.info("Shutting down Dataset Sharder Service...")
+    grpc_server = getattr(app.state, "grpc_server", None)
+    if grpc_server:
+        try:
+            await grpc_server.stop(grace=1)
+            logger.info("✅ gRPC server stopped")
+        except Exception as e:
+            logger.error(f"Error stopping gRPC server: {e}")

@@ -89,6 +89,38 @@ async def get_parameter_version(model_id: str):
         )
 
 
+@router.put("/parameters/{model_id}/learning-rate")
+async def update_learning_rate(model_id: str, request: Request):
+    """
+    Update learning rate for a model in Parameter Server
+
+    Proxies to Parameter Server: PUT /parameters/{model_id}/learning-rate
+    """
+    try:
+        body = await request.json()
+        url = f"{PARAMETER_SERVER_URL}/parameters/{model_id}/learning-rate"
+
+        logger.info(f"Proxying learning rate update for model {model_id}")
+
+        response = await http_client.put(url, json=body)
+        response.raise_for_status()
+
+        return response.json()
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Parameter server returned error: {e.response.status_code}")
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=e.response.text
+        )
+    except Exception as e:
+        logger.error(f"Error proxying to parameter server: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Parameter server unavailable"
+        )
+
+
 @router.post("/gradients/submit")
 async def submit_gradients(request: Request):
     """

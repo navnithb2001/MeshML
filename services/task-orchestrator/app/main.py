@@ -23,8 +23,8 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Import routers
-from app.routers import jobs, discovery, assignment, fault_tolerance
+# Import gRPC server
+from app.grpc_server import start_grpc_server
 
 # Redis connection
 redis_client = None
@@ -61,6 +61,15 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Failed to connect to Redis: {e}")
         logger.warning("⚠️ Starting without Redis - some features may not work")
         app.state.redis = None
+
+    grpc_host = os.getenv("GRPC_HOST", "0.0.0.0")
+    grpc_port = int(os.getenv("GRPC_PORT", "50051"))
+    try:
+        await start_grpc_server(app, grpc_host, grpc_port)
+        logger.info(f"✅ gRPC server ready on {grpc_host}:{grpc_port}")
+    except Exception as e:
+        logger.error(f"❌ Failed to start gRPC server: {e}")
+        logger.warning("⚠️ gRPC server not available - workers cannot connect")
     
     logger.info("✅ Task Orchestrator Service started successfully")
     
@@ -68,6 +77,13 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("👋 Shutting down Task Orchestrator Service...")
+    grpc_server = getattr(app.state, "grpc_server", None)
+    if grpc_server:
+        try:
+            await grpc_server.stop(grace=1)
+            logger.info("✅ gRPC server stopped")
+        except Exception as e:
+            logger.error(f"Error stopping gRPC server: {e}")
     if redis_client:
         try:
             redis_client.close()
@@ -81,7 +97,10 @@ app = FastAPI(
     title="Task Orchestrator Service",
     description="Distributed training task coordination and worker management",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None
 )
 
 # CORS middleware
@@ -109,13 +128,6 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Include routers
-app.include_router(jobs.router)
-app.include_router(discovery.router)
-app.include_router(assignment.router)
-app.include_router(fault_tolerance.router)
-
-
 # Health check endpoint
 @app.get("/health", tags=["health"])
 async def health_check():
@@ -135,24 +147,6 @@ async def health_check():
         "service": "task-orchestrator",
         "version": "1.0.0",
         "redis": redis_status
-    }
-
-
-@app.get("/", tags=["root"])
-async def root():
-    """Root endpoint"""
-    return {
-        "service": "Task Orchestrator",
-        "version": "1.0.0",
-        "description": "Distributed training task coordination",
-        "endpoints": {
-            "health": "/health",
-            "docs": "/docs",
-            "jobs": "/jobs",
-            "discovery": "/discovery",
-            "assignment": "/assignment",
-            "fault_tolerance": "/fault-tolerance"
-        }
     }
 
 

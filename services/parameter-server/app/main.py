@@ -13,6 +13,7 @@ import logging
 import sys
 from redis import Redis
 import os
+import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 # Import routers
 from app.routers import gradients, parameters, models, synchronization, convergence, distribution
+from app.grpc_server import start_grpc_server
+from app.services.persistence_loop import PersistenceLoop
+from app.services.parameter_storage import ParameterStorageService
+from app.services.model_registry_client import ModelRegistryClient
 
 # Redis connection
 redis_client = None
@@ -64,10 +69,47 @@ async def lifespan(app: FastAPI):
     
     logger.info("✅ Parameter Server Service started successfully")
     
+    grpc_host = os.getenv("GRPC_HOST", "0.0.0.0")
+    grpc_port = int(os.getenv("GRPC_PORT", "50054"))
+    try:
+        await start_grpc_server(app, grpc_host, grpc_port)
+        logger.info(f"✅ gRPC server ready on {grpc_host}:{grpc_port}")
+    except Exception as e:
+        logger.error(f"❌ Failed to start gRPC server: {e}")
+        logger.warning("⚠️ gRPC server not available")
+
+    persistence_stop = asyncio.Event()
+    persistence = PersistenceLoop(
+        storage=ParameterStorageService(),
+        model_registry=ModelRegistryClient(),
+        checkpoint_interval=int(os.getenv("CHECKPOINT_INTERVAL", "50")),
+        final_version=int(os.getenv("FINAL_MODEL_VERSION", "500")),
+        poll_interval=float(os.getenv("PERSISTENCE_POLL_INTERVAL", "5"))
+    )
+    persistence_task = asyncio.create_task(persistence.run(persistence_stop))
+    app.state.persistence_stop = persistence_stop
+    app.state.persistence_task = persistence_task
+    
     yield
     
     # Shutdown
     logger.info("👋 Shutting down Parameter Server Service...")
+    stop_event = getattr(app.state, "persistence_stop", None)
+    task = getattr(app.state, "persistence_task", None)
+    if stop_event:
+        stop_event.set()
+    if task:
+        try:
+            await task
+        except Exception:
+            pass
+    grpc_server = getattr(app.state, "grpc_server", None)
+    if grpc_server:
+        try:
+            await grpc_server.stop(grace=1)
+            logger.info("✅ gRPC server stopped")
+        except Exception as e:
+            logger.error(f"Error stopping gRPC server: {e}")
     if redis_client:
         try:
             redis_client.close()

@@ -4,6 +4,9 @@ package meshml.orchestrator;
 
 // Task Orchestrator Service - Worker lifecycle and task management
 service TaskOrchestrator {
+  // Job submission from API Gateway
+  rpc SubmitJob(JobSubmission) returns (JobSubmissionAck);
+
   // Worker registers with the system and provides capabilities
   rpc RegisterWorker(WorkerCapabilities) returns (WorkerRegistration);
   
@@ -12,12 +15,57 @@ service TaskOrchestrator {
   
   // Worker requests tasks to execute
   rpc RequestTask(TaskRequest) returns (TaskAssignment);
+
+  // Bi-directional streaming for live control plane
+  rpc StreamTasks(stream WorkerStreamRequest) returns (stream OrchestratorStreamResponse);
   
   // Worker reports batch completion
   rpc ReportBatchComplete(BatchCompletion) returns (BatchAck);
   
   // Worker reports batch failure
   rpc ReportBatchFailed(BatchFailure) returns (BatchAck);
+}
+
+// Job priority levels
+enum JobPriority {
+  JOB_PRIORITY_LOW = 0;
+  JOB_PRIORITY_MEDIUM = 1;
+  JOB_PRIORITY_HIGH = 2;
+  JOB_PRIORITY_CRITICAL = 3;
+}
+
+// Resource requirements for job execution
+message JobRequirements {
+  int32 min_gpu_count = 1;
+  float min_gpu_memory_gb = 2;
+  int32 min_cpu_count = 3;
+  float min_ram_gb = 4;
+  bool requires_cuda = 5;
+  bool requires_mps = 6;
+  int32 max_execution_time_seconds = 7;
+}
+
+// Job submission payload
+message JobSubmission {
+  string job_id = 1;
+  string group_id = 2;
+  string model_id = 3;
+  string dataset_id = 4;
+  string user_id = 5;
+  int32 batch_size = 6;
+  int32 num_epochs = 7;
+  float learning_rate = 8;
+  string optimizer = 9;
+  JobRequirements requirements = 10;
+  map<string, string> tags = 11;
+  string description = 12;
+  JobPriority priority = 13;
+}
+
+// Job submission response
+message JobSubmissionAck {
+  bool success = 1;
+  string message = 2;
 }
 
 // Worker capability information during registration
@@ -74,16 +122,46 @@ message TaskRequest {
   repeated string preferred_job_ids = 2; // Jobs this worker wants to work on
 }
 
+// Streaming request from worker
+message WorkerStreamRequest {
+  string worker_id = 1;
+  oneof payload {
+    Heartbeat heartbeat = 2;
+    TaskRequest task_request = 3;
+    TaskResult task_result = 4;
+  }
+}
+
+// Streaming response from orchestrator
+message OrchestratorStreamResponse {
+  string worker_id = 1;
+  oneof payload {
+    TaskAssignment assignment = 2;
+    HeartbeatAck heartbeat_ack = 3;
+    string message = 4;
+  }
+}
+
 // Task assignment from orchestrator to worker
 message TaskAssignment {
   bool has_task = 1;                     // Whether a task is available
   string job_id = 2;                     // Job identifier
-  int32 batch_id = 3;                    // Data batch identifier
+  string batch_id = 3;                   // Data batch identifier
   string batch_gcs_path = 4;             // GCS path to download batch data
   string model_gcs_path = 5;             // GCS path to download model
   int32 current_epoch = 6;               // Current training epoch
   bytes hyperparameters = 7;             // Serialized hyperparameters (JSON)
   string message = 8;                    // Assignment message
+  string model_url = 9;                  // Signed URL for model code
+  string data_url = 10;                  // Signed URL for data batch
+}
+
+message TaskResult {
+  string worker_id = 1;
+  string job_id = 2;
+  string batch_id = 3;
+  bool success = 4;
+  string error_message = 5;
 }
 
 // Worker reports batch completion

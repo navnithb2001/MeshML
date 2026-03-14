@@ -16,6 +16,8 @@ from app.services.data_distribution import (
     AssignmentStatus
 )
 from app.services.batch_storage import BatchManager, create_storage_backend
+from app.core.storage import get_dataset_storage
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +105,13 @@ class DistributionStatsResponse(BaseModel):
     status_counts: dict
     worker_stats: dict
     strategy: str
+
+
+class DownloadUrlResponse(BaseModel):
+    """Response containing signed download URL."""
+    download_url: str
+    storage_path: str
+    expires_in_seconds: int = 3600
 
 
 # Endpoints
@@ -209,6 +218,37 @@ async def list_worker_batches(
         )
     
     return assignment.assigned_batches
+
+
+@router.get("/batches/{batch_id}/download-url", response_model=DownloadUrlResponse)
+async def get_batch_download_url(
+    batch_id: str,
+    batch_manager: BatchManager = Depends(get_batch_manager)
+):
+    """
+    Get a signed download URL for a batch stored in GCS.
+    """
+    try:
+        _, metadata = batch_manager.load_batch(batch_id)
+        storage_path = metadata.storage_path
+        if not storage_path.startswith("gs://"):
+            raise HTTPException(status_code=400, detail="Batch not stored in GCS")
+
+        blob_path = storage_path.replace(f"gs://{settings.GCS_BUCKET_DATASETS}/", "")
+        storage_client = get_dataset_storage()
+        download_url = storage_client.generate_presigned_download_url(blob_path)
+        return DownloadUrlResponse(
+            download_url=download_url,
+            storage_path=storage_path,
+            expires_in_seconds=3600
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate download URL: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/batches/{batch_id}/assignment", response_model=BatchAssignmentResponse)

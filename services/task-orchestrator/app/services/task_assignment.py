@@ -14,8 +14,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple, Any
 from enum import Enum
+from app.services.dataset_sharder_client import DatasetSharderClient
 import asyncio
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +208,8 @@ class TaskAssignmentService:
         self.round_robin_index: Dict[str, int] = {}  # group_id -> index
         self.assignment_history: List[AssignmentResult] = []
         self.rebalance_task: Optional[asyncio.Task] = None
+        self._sharded_datasets: Set[str] = set()
+        self._shard_lock = asyncio.Lock()
         
         logger.info(f"TaskAssignmentService initialized with strategy={self.config.default_strategy.value}")
     
@@ -260,7 +264,11 @@ class TaskAssignmentService:
                     status=AssignmentStatus.NO_WORKERS_AVAILABLE,
                     message="No suitable worker found"
                 )
-            
+
+            # Ensure dataset is sharded and batches assigned when shard_ids not provided
+            if shard_ids is None:
+                shard_ids = await self._ensure_shards_and_assign_batches(job, worker.worker_id)
+
             # Perform assignment
             success = self.worker_discovery.assign_job_to_worker(
                 job_id=job_id,
@@ -297,6 +305,58 @@ class TaskAssignmentService:
                 status=AssignmentStatus.FAILED,
                 error=str(e)
             )
+
+    async def _ensure_shards_and_assign_batches(self, job, worker_id: str) -> List[int]:
+        """Ensure dataset shards exist and assign batches to the worker.
+
+        Returns list of shard IDs assigned to the worker.
+        """
+        dataset_id = job.metadata.dataset_id
+
+        async with self._shard_lock:
+            if dataset_id not in self._sharded_datasets:
+                bucket = os.getenv("DATASET_GCS_BUCKET", "meshml-datasets")
+                template = os.getenv("DATASET_PATH_TEMPLATE", "gs://{bucket}/{dataset_id}/")
+                dataset_path = template.format(bucket=bucket, dataset_id=dataset_id)
+
+                dataset_format = None
+                if hasattr(job.metadata, "tags") and isinstance(job.metadata.tags, dict):
+                    dataset_format = job.metadata.tags.get("dataset_format")
+
+                num_shards = int(os.getenv("DATASET_DEFAULT_SHARDS", "10"))
+                if hasattr(job.metadata, "tags") and isinstance(job.metadata.tags, dict):
+                    num_shards = int(job.metadata.tags.get("num_shards", num_shards))
+
+                shard_strategy = "stratified"
+                if hasattr(job.metadata, "tags") and isinstance(job.metadata.tags, dict):
+                    shard_strategy = job.metadata.tags.get("shard_strategy", shard_strategy)
+
+                batch_size = job.metadata.batch_size
+
+                client = DatasetSharderClient()
+                await client.shard_dataset(
+                    dataset_id=dataset_id,
+                    dataset_path=dataset_path,
+                    format=dataset_format,
+                    num_shards=num_shards,
+                    strategy=shard_strategy,
+                    batch_size=batch_size,
+                    seed=42
+                )
+
+                self._sharded_datasets.add(dataset_id)
+
+        # Assign batches for this worker
+        client = DatasetSharderClient()
+        assignment = await client.assign_batches(worker_ids=[worker_id], strategy="shard_per_worker")
+
+        shard_ids: List[int] = []
+        assignments = assignment.get("assignments", {})
+        worker_assignment = assignments.get(worker_id)
+        if worker_assignment and "shard_id" in worker_assignment:
+            shard_ids = [worker_assignment["shard_id"]]
+
+        return shard_ids
     
     async def _select_worker(
         self,
@@ -526,10 +586,17 @@ class TaskAssignmentService:
             worker = workers[worker_idx]
             self.round_robin_index[group_id] += 1
             
+            # Ensure dataset is sharded and batches assigned
+            job = self.job_queue.get_job(job_id)
+            shard_ids: Optional[List[int]] = None
+            if job:
+                shard_ids = await self._ensure_shards_and_assign_batches(job, worker.worker_id)
+
             # Assign job
             success = self.worker_discovery.assign_job_to_worker(
                 job_id=job_id,
-                worker_id=worker.worker_id
+                worker_id=worker.worker_id,
+                shard_ids=shard_ids
             )
             
             if success:
@@ -538,6 +605,7 @@ class TaskAssignmentService:
                     worker_id=worker.worker_id,
                     status=AssignmentStatus.SUCCESS,
                     assigned_at=datetime.utcnow(),
+                    shard_ids=shard_ids or [],
                     compute_score=worker.capabilities.get_compute_score()
                 )
             else:
@@ -617,10 +685,16 @@ class TaskAssignmentService:
             
             worker = worker_weights[worker_idx][0]
             
+            job = self.job_queue.get_job(job_id)
+            shard_ids: Optional[List[int]] = None
+            if job:
+                shard_ids = await self._ensure_shards_and_assign_batches(job, worker.worker_id)
+
             # Assign job
             success = self.worker_discovery.assign_job_to_worker(
                 job_id=job_id,
-                worker_id=worker.worker_id
+                worker_id=worker.worker_id,
+                shard_ids=shard_ids
             )
             
             result = AssignmentResult(
@@ -628,6 +702,7 @@ class TaskAssignmentService:
                 worker_id=worker.worker_id if success else None,
                 status=AssignmentStatus.SUCCESS if success else AssignmentStatus.FAILED,
                 assigned_at=datetime.utcnow() if success else None,
+                shard_ids=shard_ids or [],
                 compute_score=worker.capabilities.get_compute_score()
             )
             assignments.append(result)
@@ -683,9 +758,15 @@ class TaskAssignmentService:
             worker = workers_sorted[worker_idx % len(workers_sorted)]
             worker_idx += 1
             
+            job = self.job_queue.get_job(job_id)
+            shard_ids: Optional[List[int]] = None
+            if job:
+                shard_ids = await self._ensure_shards_and_assign_batches(job, worker.worker_id)
+
             success = self.worker_discovery.assign_job_to_worker(
                 job_id=job_id,
-                worker_id=worker.worker_id
+                worker_id=worker.worker_id,
+                shard_ids=shard_ids
             )
             
             result = AssignmentResult(
@@ -693,6 +774,7 @@ class TaskAssignmentService:
                 worker_id=worker.worker_id if success else None,
                 status=AssignmentStatus.SUCCESS if success else AssignmentStatus.FAILED,
                 assigned_at=datetime.utcnow() if success else None,
+                shard_ids=shard_ids or [],
                 compute_score=worker.capabilities.get_compute_score()
             )
             assignments.append(result)

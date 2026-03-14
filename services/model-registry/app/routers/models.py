@@ -10,6 +10,10 @@ from sqlalchemy import select, and_
 from typing import Optional
 from uuid import UUID
 import logging
+import os
+
+import boto3
+from botocore.config import Config
 
 from ..database import get_db_session
 from ..models import Model, ModelState
@@ -297,6 +301,81 @@ async def download_model_file(
         "download_url": download_url,
         "model_id": model_id,
         "filename": "model.py",
+        "expires_in_seconds": 3600
+    }
+
+
+@router.get("/{model_id}/checkpoints/{version}")
+async def download_checkpoint(
+    model_id: int,
+    version: str,
+    db: AsyncSession = Depends(get_db_session),
+    gcs: GCSClient = Depends(get_gcs_client)
+):
+    """
+    Download a specific checkpoint version.
+    Returns signed URL for direct download.
+    """
+    result = await db.execute(
+        select(Model).where(Model.id == model_id)
+    )
+    model = result.scalar_one_or_none()
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Model {model_id} not found"
+        )
+
+    version_tag = version if str(version).startswith("v") else f"v{version}"
+    checkpoint_key = f"checkpoints/{model_id}/{version_tag}.pt"
+
+    emulator_url = os.getenv("STORAGE_EMULATOR_URL")
+    if emulator_url:
+        access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
+        secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+        client = boto3.client(
+            "s3",
+            endpoint_url=emulator_url,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name="us-east-1",
+            config=Config(signature_version="s3v4")
+        )
+        bucket = settings.GCS_BUCKET_NAME
+        try:
+            client.head_object(Bucket=bucket, Key=checkpoint_key)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Checkpoint not found"
+            )
+        download_url = client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": checkpoint_key},
+            ExpiresIn=3600
+        )
+    else:
+        if not gcs or not gcs.bucket:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Storage not available"
+            )
+        blob = gcs.bucket.blob(checkpoint_key)
+        if not blob.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Checkpoint not found"
+            )
+        download_url = blob.generate_signed_url(
+            version="v4",
+            expiration=3600,
+            method="GET"
+        )
+
+    return {
+        "model_id": model_id,
+        "checkpoint_version": version_tag,
+        "download_url": download_url,
         "expires_in_seconds": 3600
     }
 

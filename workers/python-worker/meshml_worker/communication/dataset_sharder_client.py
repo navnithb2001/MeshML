@@ -193,7 +193,20 @@ class DatasetSharderClient:
             # Ensure local path exists
             local_path.mkdir(parents=True, exist_ok=True)
             
-            # Download endpoint
+        # Prefer signed URL if available (GCS)
+        download_url = None
+        try:
+            signed = await self._make_request(
+                "GET",
+                f"/distribution/batches/{batch_id}/download-url"
+            )
+            download_url = signed.get("download_url")
+        except Exception:
+            download_url = None
+
+        if download_url:
+            url = download_url
+        else:
             endpoint = f"/distribution/workers/{worker_id}/batches/{batch_id}/download"
             url = f"{self.sharder_url}{endpoint}"
             

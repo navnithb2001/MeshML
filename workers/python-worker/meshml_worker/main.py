@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import signal
 import sys
+import json
+import hashlib
+import psutil
 
 from meshml_worker.config import WorkerConfig
 
@@ -37,6 +40,9 @@ class MeshMLWorker:
         self.config = config
         self.worker_id = config.worker.id
         self.running = False
+        self._shutdown_event: Optional[asyncio.Event] = None
+        self._pause_event: Optional[asyncio.Event] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         
         # Setup logging
         self._setup_logging()
@@ -63,6 +69,8 @@ class MeshMLWorker:
         def signal_handler(signum: int, frame: Any) -> None:
             logger.info(f"Received signal {signum}, shutting down gracefully...")
             self.running = False
+            if self._loop and self._shutdown_event:
+                self._loop.call_soon_threadsafe(self._shutdown_event.set)
         
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
@@ -88,13 +96,17 @@ class MeshMLWorker:
         from meshml_worker.communication import (
             TaskOrchestratorClient,
             ModelRegistryClient,
-            DatasetSharderClient
+            DatasetSharderClient,
+            MetricsClient
         )
         from meshml_worker.training.trainer import Trainer
         from meshml_worker.communication.http_client import HTTPClient
         from meshml_worker.utils.device import get_device
         
         self.running = True
+        self._loop = asyncio.get_running_loop()
+        self._shutdown_event = asyncio.Event()
+        self._pause_event = asyncio.Event()
         logger.info("=" * 60)
         logger.info("Starting MeshML Worker with Task Orchestrator Integration")
         logger.info("=" * 60)
@@ -119,89 +131,131 @@ class MeshMLWorker:
                        f"RAM={registration_result.get('ram_gb', 0):.1f} GB, "
                        f"GPU={registration_result.get('has_gpu', False)}")
             
-            # Step 2: Request task assignment
-            logger.info("\n[2/5] Requesting task assignment...")
-            task = await orchestrator.request_task(preferred_job_ids=preferred_job_ids or [])
-            
-            if not task:
-                logger.warning("No tasks available at this time")
-                return
-            
-            job_id = task.get("job_id")
-            model_id = task.get("model_id")
-            batch_assignments = task.get("batch_ids", [])
-            
-            logger.info(f"✓ Task assigned!")
-            logger.info(f"  Job ID: {job_id}")
-            logger.info(f"  Model ID: {model_id}")
-            logger.info(f"  Assigned batches: {len(batch_assignments)}")
-            
-            # Step 3: Download model from Model Registry
-            logger.info(f"\n[3/5] Downloading model from Model Registry...")
-            async with ModelRegistryClient(
-                registry_url=self.config.model_registry.url,
-                timeout=self.config.model_registry.timeout
-            ) as model_client:
-                
-                # Get model metadata
-                model_info = await model_client.get_model(model_id)
-                logger.info(f"  Model: {model_info.get('name', 'Unknown')}")
-                logger.info(f"  Architecture: {model_info.get('architecture_type', 'Unknown')}")
-                
-                # Download model file
-                model_path = self.config.storage.models_dir / f"{model_id}.py"
-                downloaded_path = await model_client.download_model(
-                    model_id=model_id,
-                    local_path=model_path
-                )
-                logger.info(f"✓ Model downloaded to: {downloaded_path}")
-            
-            # Step 4: Download data from Dataset Sharder
-            logger.info(f"\n[4/5] Downloading data from Dataset Sharder...")
-            async with DatasetSharderClient(
-                sharder_url=self.config.dataset_sharder.url,
-                timeout=self.config.dataset_sharder.timeout
-            ) as sharder_client:
-                
-                batch_paths = await sharder_client.download_all_assigned_batches(
-                    worker_id=self.worker_id,
-                    local_base_path=self.config.storage.data_dir,
-                    job_id=job_id
-                )
-                logger.info(f"✓ Downloaded {len(batch_paths)} data batches")
-            
-            # Step 5: Train the model
-            logger.info(f"\n[5/5] Starting training...")
-            
-            # Detect device
-            device = get_device(self.config.training.device)
-            logger.info(f"  Device: {device}")
-            
-            # Initialize Parameter Server client
-            http_client = HTTPClient(self.config.parameter_server.url)
-            if not http_client.connect():
-                raise RuntimeError("Failed to connect to Parameter Server")
-            logger.info("  Connected to Parameter Server")
-            
-            # Initialize trainer with orchestrator
-            trainer = Trainer(
-                config=self.config,
-                grpc_client=http_client,
-                device=device,
-                orchestrator_client=orchestrator,  # Pass orchestrator for reporting
-                job_id=job_id,
-                model_path=model_path,
-                data_paths=batch_paths
-            )
-            
-            # Start training loop
-            await trainer.train_with_orchestrator(
-                model_id=model_id,
-                job_id=job_id,
-                batch_ids=batch_assignments
-            )
-            
-            logger.info("\n" + "=" * 60)
+            cache_path = self.config.storage.models_dir / ".model_cache.json"
+
+            async def _read_cache() -> Dict[str, Any]:
+                if not cache_path.exists():
+                    return {}
+                try:
+                    return json.loads(cache_path.read_text())
+                except Exception:
+                    return {}
+
+            async def _write_cache(cache: Dict[str, Any]) -> None:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(json.dumps(cache, indent=2))
+
+            async def _hash_file(path: Path) -> str:
+                def _compute() -> str:
+                    h = hashlib.sha256()
+                    with open(path, "rb") as f:
+                        for chunk in iter(lambda: f.read(8192), b""):
+                            h.update(chunk)
+                    return h.hexdigest()
+                return await asyncio.to_thread(_compute)
+
+            async def _download(url: str, dest_path: Path, cache_key: str, expected_sha: Optional[str]) -> None:
+                import httpx
+                cache = await _read_cache()
+                if expected_sha and dest_path.exists():
+                    try:
+                        cached = cache.get(cache_key, {})
+                        if cached.get("sha256") == expected_sha:
+                            existing_hash = await _hash_file(dest_path)
+                            if existing_hash == expected_sha:
+                                logger.info(f"Using cached model: {dest_path}")
+                                return
+                    except Exception:
+                        pass
+
+                async with httpx.AsyncClient(timeout=60) as http_client:
+                    resp = await http_client.get(url)
+                    resp.raise_for_status()
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    dest_path.write_bytes(resp.content)
+                file_hash = await _hash_file(dest_path)
+                cache[cache_key] = {"url": url, "sha256": file_hash}
+                await _write_cache(cache)
+
+            async def _resource_monitor() -> None:
+                while self.running and self._pause_event:
+                    cpu = psutil.cpu_percent(interval=0.1)
+                    mem = psutil.virtual_memory().percent
+                    if cpu > 80.0 or mem > 80.0:
+                        if not self._pause_event.is_set():
+                            logger.warning("High system usage detected; pausing training")
+                            self._pause_event.set()
+                    else:
+                        if self._pause_event.is_set():
+                            logger.info("Resources available; resuming training")
+                            self._pause_event.clear()
+                    await asyncio.sleep(10)
+
+            monitor_task = asyncio.create_task(_resource_monitor())
+            job_progress: Dict[str, Dict[str, int]] = {}
+
+            async def _handle_assignment(assignment, hyperparameters):
+                try:
+                    job_id = assignment.job_id
+                    model_id = hyperparameters.get("model_id") or "unknown"
+                    model_sha = hyperparameters.get("model_sha256")
+                    total_batches = int(hyperparameters.get("total_batches") or 0)
+
+                    model_path = self.config.storage.models_dir / f"{model_id}.py"
+                    if assignment.model_url:
+                        await _download(assignment.model_url, model_path, f"model:{model_id}", model_sha)
+
+                    data_dir = self.config.storage.data_dir / f"{assignment.batch_id}"
+                    data_dir.mkdir(parents=True, exist_ok=True)
+                    data_path = data_dir / "batch.data"
+                    if assignment.data_url:
+                        await _download(assignment.data_url, data_path, f"batch:{assignment.batch_id}", None)
+
+                    # Detect device
+                    device = get_device(self.config.training.device)
+
+                    # Initialize Parameter Server client
+                    http_client = HTTPClient(self.config.parameter_server.url)
+                    if not http_client.connect():
+                        raise RuntimeError("Failed to connect to Parameter Server")
+
+                    trainer = Trainer(
+                        config=self.config,
+                        grpc_client=http_client,
+                        device=device,
+                        orchestrator_client=orchestrator,
+                        metrics_client=MetricsClient(self.config.metrics_service.grpc_url),
+                        job_id=job_id,
+                        model_path=model_path,
+                        data_paths=[data_dir],
+                        pause_event=self._pause_event
+                    )
+
+                    await trainer.train(
+                        model_id=str(model_id),
+                        job_id=job_id,
+                        batch_ids=[assignment.batch_id],
+                        epochs=1
+                    )
+
+                    if total_batches > 0:
+                        progress = job_progress.setdefault(
+                            job_id,
+                            {"completed": 0, "total": total_batches}
+                        )
+                        progress["completed"] += 1
+                        if progress["completed"] >= progress["total"]:
+                            logger.info(f"Job {job_id} completed all batches; closing stream")
+                            if self._shutdown_event:
+                                self._shutdown_event.set()
+
+                    return {"success": True}
+                except Exception as e:
+                    return {"success": False, "error_message": str(e)}
+
+            logger.info("\n[2/5] Waiting for streamed assignments...")
+            await orchestrator.run_assignment_stream(_handle_assignment, self._shutdown_event)
+            monitor_task.cancel()
             logger.info("Training completed successfully!")
             logger.info("=" * 60)
             

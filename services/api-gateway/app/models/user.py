@@ -27,6 +27,7 @@ class User(Base):
     owned_groups = relationship("Group", back_populates="owner", foreign_keys="Group.owner_id")
     group_memberships = relationship("GroupMember", back_populates="user")
     created_jobs = relationship("Job", back_populates="creator")
+    datasets = relationship("Dataset", back_populates="uploader")
     
     def __repr__(self):
         return f"<User {self.email}>"

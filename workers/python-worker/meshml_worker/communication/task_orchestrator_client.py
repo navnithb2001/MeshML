@@ -30,6 +30,7 @@ class TaskOrchestratorClient:
         self,
         grpc_url: str,
         user_id: str,
+        worker_id: Optional[str] = None,
         worker_name: str = "MeshML Python Worker",
         max_retries: int = 3,
         retry_delay: float = 2.0
@@ -40,19 +41,23 @@ class TaskOrchestratorClient:
         Args:
             grpc_url: gRPC server address (host:port)
             user_id: User ID who owns this worker
+            worker_id: Optional pre-configured worker ID (server may override)
             worker_name: Human-readable worker name
             max_retries: Maximum number of retry attempts
             retry_delay: Delay between retries in seconds
         """
         self.grpc_url = grpc_url
         self.user_id = user_id
-        self.worker_name = worker_name
+        if worker_name == "MeshML Python Worker" and worker_id:
+            self.worker_name = worker_id
+        else:
+            self.worker_name = worker_name or "MeshML Python Worker"
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         
         self.channel: Optional[grpc.aio.Channel] = None
         self.stub: Optional[task_orchestrator_pb2_grpc.TaskOrchestratorStub] = None
-        self.worker_id: Optional[str] = None
+        self.worker_id: Optional[str] = worker_id
         self.heartbeat_interval: int = 30  # seconds
         self._heartbeat_task: Optional[asyncio.Task] = None
         
@@ -344,6 +349,12 @@ class TaskOrchestratorClient:
                     hyperparameters = json.loads(assignment.hyperparameters.decode('utf-8'))
                 except:
                     logger.warning("Failed to parse hyperparameters")
+
+            model_id = hyperparameters.get("model_id")
+            dataset_id = hyperparameters.get("dataset_id")
+            batch_ids = hyperparameters.get("batch_ids", [])
+            if not isinstance(batch_ids, list):
+                batch_ids = []
             
             task_info = {
                 "job_id": assignment.job_id,
@@ -351,6 +362,9 @@ class TaskOrchestratorClient:
                 "batch_gcs_path": assignment.batch_gcs_path,
                 "model_gcs_path": assignment.model_gcs_path,
                 "current_epoch": assignment.current_epoch,
+                "model_id": model_id,
+                "dataset_id": dataset_id,
+                "batch_ids": batch_ids,
                 "hyperparameters": hyperparameters,
                 "message": assignment.message
             }
@@ -366,6 +380,157 @@ class TaskOrchestratorClient:
         except grpc.RpcError as e:
             logger.error(f"Task request failed: {e.code()} - {e.details()}")
             raise RuntimeError(f"Task request failed: {e.details()}")
+
+    async def request_task_streaming(
+        self,
+        preferred_job_ids: Optional[List[str]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Request a task using bi-directional streaming RPC.
+        """
+        if not self.stub or not self.worker_id:
+            raise RuntimeError("Worker not registered")
+
+        try:
+            call = self.stub.StreamTasks()
+            await call.write(
+                task_orchestrator_pb2.WorkerStreamRequest(
+                    worker_id=self.worker_id,
+                    task_request=task_orchestrator_pb2.TaskRequest(
+                        worker_id=self.worker_id,
+                        preferred_job_ids=preferred_job_ids or []
+                    )
+                )
+            )
+            response = await call.read()
+            await call.done_writing()
+
+            if not response or not response.HasField("assignment"):
+                return None
+
+            assignment = response.assignment
+            if not assignment.has_task:
+                return None
+
+            hyperparameters = {}
+            if assignment.hyperparameters:
+                try:
+                    hyperparameters = json.loads(assignment.hyperparameters.decode("utf-8"))
+                except:
+                    logger.warning("Failed to parse hyperparameters")
+
+            model_id = hyperparameters.get("model_id")
+            dataset_id = hyperparameters.get("dataset_id")
+            batch_ids = hyperparameters.get("batch_ids", [])
+            if not isinstance(batch_ids, list):
+                batch_ids = []
+
+            return {
+                "job_id": assignment.job_id,
+                "batch_id": assignment.batch_id,
+                "batch_gcs_path": assignment.batch_gcs_path,
+                "model_gcs_path": assignment.model_gcs_path,
+                "current_epoch": assignment.current_epoch,
+                "model_id": model_id,
+                "dataset_id": dataset_id,
+                "batch_ids": batch_ids,
+                "hyperparameters": hyperparameters,
+                "message": assignment.message
+            }
+        except grpc.RpcError as e:
+            logger.error(f"Streaming task request failed: {e.code()} - {e.details()}")
+            raise RuntimeError(f"Streaming task request failed: {e.details()}")
+
+    async def run_assignment_stream(
+        self,
+        handler,
+        stop_event: Optional[asyncio.Event] = None
+    ) -> None:
+        """
+        Maintain bidirectional stream and handle assignments.
+        """
+        if not self.stub or not self.worker_id:
+            raise RuntimeError("Worker not registered")
+
+        call = self.stub.StreamTasks()
+        write_lock = asyncio.Lock()
+
+        async def send_heartbeat():
+            while True:
+                await asyncio.sleep(self.heartbeat_interval)
+                if stop_event and stop_event.is_set():
+                    break
+                async with write_lock:
+                    await call.write(
+                        task_orchestrator_pb2.WorkerStreamRequest(
+                            worker_id=self.worker_id,
+                            heartbeat=task_orchestrator_pb2.Heartbeat(
+                                worker_id=self.worker_id,
+                                status="idle",
+                                active_tasks=0,
+                                cpu_usage_percent=0.0,
+                                ram_usage_percent=0.0,
+                                gpu_usage_percent=0.0
+                            )
+                        )
+                    )
+
+        heartbeat_task = asyncio.create_task(send_heartbeat())
+        try:
+            async for response in call:
+                if stop_event and stop_event.is_set():
+                    break
+                if response.HasField("assignment"):
+                    assignment = response.assignment
+                    if not assignment.has_task:
+                        continue
+
+                    hyperparameters = {}
+                    if assignment.hyperparameters:
+                        try:
+                            hyperparameters = json.loads(assignment.hyperparameters.decode("utf-8"))
+                        except:
+                            pass
+
+                    result = await handler(assignment, hyperparameters)
+                    success = bool(result.get("success", False))
+                    error_message = result.get("error_message", "")
+                    async with write_lock:
+                        await call.write(
+                            task_orchestrator_pb2.WorkerStreamRequest(
+                                worker_id=self.worker_id,
+                                task_result=task_orchestrator_pb2.TaskResult(
+                                    worker_id=self.worker_id,
+                                    job_id=assignment.job_id,
+                                    batch_id=assignment.batch_id,
+                                    success=success,
+                                    error_message=error_message
+                                )
+                            )
+                        )
+        finally:
+            if stop_event and stop_event.is_set():
+                try:
+                    async with write_lock:
+                        await call.write(
+                            task_orchestrator_pb2.WorkerStreamRequest(
+                                worker_id=self.worker_id,
+                                task_result=task_orchestrator_pb2.TaskResult(
+                                    worker_id=self.worker_id,
+                                    job_id="",
+                                    batch_id="",
+                                    success=False,
+                                    error_message="DISCONNECTING"
+                                )
+                            )
+                        )
+                except Exception:
+                    pass
+            heartbeat_task.cancel()
+            try:
+                await call.done_writing()
+            except Exception:
+                pass
     
     async def report_batch_complete(
         self,
@@ -375,6 +540,8 @@ class TaskOrchestratorClient:
         loss: float,
         accuracy: float = 0.0,
         processing_time_ms: int = 0,
+        samples_processed: Optional[int] = None,
+        training_time: Optional[float] = None,
         metrics: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
@@ -401,6 +568,21 @@ class TaskOrchestratorClient:
         )
         
         try:
+            if isinstance(batch_id, str):
+                if "_batch_" in batch_id:
+                    try:
+                        batch_id = int(batch_id.split("_batch_")[-1])
+                    except ValueError:
+                        batch_id = 0
+                else:
+                    try:
+                        batch_id = int(batch_id)
+                    except ValueError:
+                        batch_id = 0
+
+            if training_time is not None and processing_time_ms <= 0:
+                processing_time_ms = int(training_time * 1000)
+
             # Serialize metrics
             metrics_bytes = b""
             if metrics:
@@ -408,6 +590,11 @@ class TaskOrchestratorClient:
                     metrics_bytes = json.dumps(metrics).encode('utf-8')
                 except:
                     logger.warning("Failed to serialize metrics")
+            elif samples_processed is not None:
+                try:
+                    metrics_bytes = json.dumps({"samples_processed": samples_processed}).encode("utf-8")
+                except:
+                    metrics_bytes = b""
             
             # Create completion message
             completion = task_orchestrator_pb2.BatchCompletion(
@@ -461,6 +648,18 @@ class TaskOrchestratorClient:
         )
         
         try:
+            if isinstance(batch_id, str):
+                if "_batch_" in batch_id:
+                    try:
+                        batch_id = int(batch_id.split("_batch_")[-1])
+                    except ValueError:
+                        batch_id = 0
+                else:
+                    try:
+                        batch_id = int(batch_id)
+                    except ValueError:
+                        batch_id = 0
+
             # Create failure message
             failure = task_orchestrator_pb2.BatchFailure(
                 worker_id=self.worker_id,

@@ -25,6 +25,12 @@ except ImportError:
     grpc = None  # type: ignore
     GRPC_AVAILABLE = False
 
+try:
+    from meshml_worker.proto import parameter_server_pb2, parameter_server_pb2_grpc
+except Exception:
+    parameter_server_pb2 = None  # type: ignore
+    parameter_server_pb2_grpc = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,8 +123,8 @@ class GRPCClient:
             )
         
         try:
-            # Import generated proto files (would be generated from .proto)
-            # from proto import parameter_server_pb2, parameter_server_pb2_grpc
+            if parameter_server_pb2_grpc is None:
+                raise RuntimeError("Parameter Server proto not available")
             
             logger.info(f"Connecting to Parameter Server at {self.config.grpc_url}")
             
@@ -131,8 +137,8 @@ class GRPCClient:
                 ]
             )
             
-            # Create stub (would use generated stub)
-            # self.stub = parameter_server_pb2_grpc.ParameterServerStub(self.channel)
+            # Create stub
+            self.stub = parameter_server_pb2_grpc.ParameterServerStub(self.channel)
             
             # Test connection
             self._test_connection()
@@ -149,8 +155,14 @@ class GRPCClient:
     
     def _test_connection(self) -> None:
         """Test connection with version request"""
-        # In production, would make a GetModelVersion call
-        logger.debug("Testing connection...")
+        if not self.stub or parameter_server_pb2 is None:
+            return
+        try:
+            self.stub.GetModelVersion(
+                parameter_server_pb2.VersionRequest(job_id="healthcheck")
+            )
+        except Exception:
+            pass
     
     def disconnect(self) -> None:
         """Disconnect from Parameter Server"""
@@ -187,33 +199,37 @@ class GRPCClient:
         logger.info(f"Fetching weights for job {job_id}, epoch {epoch}")
         
         try:
-            # In production, would use proto messages:
-            # request = parameter_server_pb2.WeightsRequest(
-            #     job_id=job_id,
-            #     worker_id=worker_id,
-            #     current_version=self.current_version,
-            #     epoch=epoch
-            # )
-            # response = self.stub.GetWeights(request)
-            
-            # For now, simulate response
+            if self.stub and parameter_server_pb2 is not None:
+                request = parameter_server_pb2.WeightsRequest(
+                    job_id=job_id,
+                    worker_id=worker_id,
+                    current_version=self.current_version,
+                    epoch=epoch
+                )
+                response = self.stub.GetWeights(request)
+
+                model_state = self._decompress_data(
+                    response.model_state_dict,
+                    response.compression_type,
+                    response.uncompressed_size
+                )
+                state_dict = pickle.loads(model_state) if model_state else {}
+                version = response.version
+                self.current_version = version
+                logger.info(f"Received weights: version {version}, is_updated={response.is_updated}")
+                return state_dict, version
+
+            # Fallback: simulate response
             response = self._simulate_weights_response(job_id, epoch)
-            
-            # Decompress if needed
             model_state = self._decompress_data(
                 response["model_state_dict"],
                 response.get("compression_type", "none"),
                 response.get("uncompressed_size", 0)
             )
-            
-            # Deserialize
             state_dict = pickle.loads(model_state)
-            
             version = response["version"]
             self.current_version = version
-            
             logger.info(f"Received weights: version {version}, is_updated={response['is_updated']}")
-            
             return state_dict, version
             
         except Exception as e:
@@ -266,30 +282,37 @@ class GRPCClient:
                 gradients_bytes
             )
             
-            # In production, would use proto messages:
-            # gradient_metadata = parameter_server_pb2.GradientMetadata(
-            #     loss=metadata.get("loss", 0.0),
-            #     gradient_norm=metadata.get("gradient_norm", 0.0),
-            #     computation_time_ms=metadata.get("computation_time_ms", 0),
-            #     layer_norms=metadata.get("layer_norms", {})
-            # )
-            # 
-            # request = parameter_server_pb2.GradientsUpdate(
-            #     job_id=job_id,
-            #     worker_id=worker_id,
-            #     batch_id=batch_id,
-            #     version=self.current_version,
-            #     epoch=epoch,
-            #     gradients=compressed_data,
-            #     batch_size=batch_size,
-            #     learning_rate=learning_rate,
-            #     compression_type=compression_type,
-            #     uncompressed_size=uncompressed_size,
-            #     metadata=gradient_metadata
-            # )
-            # response = self.stub.UpdateGradients(request)
-            
-            # Simulate response
+            if self.stub and parameter_server_pb2 is not None:
+                gradient_metadata = parameter_server_pb2.GradientMetadata(
+                    loss=metadata.get("loss", 0.0) if metadata else 0.0,
+                    gradient_norm=metadata.get("gradient_norm", 0.0) if metadata else 0.0,
+                    computation_time_ms=metadata.get("computation_time_ms", 0) if metadata else 0,
+                    layer_norms=metadata.get("layer_norms", {}) if metadata else {}
+                )
+
+                request = parameter_server_pb2.GradientsUpdate(
+                    job_id=job_id,
+                    worker_id=worker_id,
+                    batch_id=batch_id,
+                    version=self.current_version,
+                    epoch=epoch,
+                    gradients=compressed_data,
+                    batch_size=batch_size,
+                    learning_rate=learning_rate,
+                    compression_type=compression_type,
+                    uncompressed_size=uncompressed_size,
+                    metadata=gradient_metadata
+                )
+                response = self.stub.UpdateGradients(request)
+                return {
+                    "success": response.success,
+                    "message": response.message,
+                    "new_version": response.new_version,
+                    "staleness_accepted": response.staleness_accepted,
+                    "staleness_threshold": response.staleness_threshold
+                }
+
+            # Simulate response fallback
             response = self._simulate_gradients_ack()
             
             if response["success"]:
@@ -320,19 +343,23 @@ class GRPCClient:
         logger.debug(f"Getting model version for job {job_id}")
         
         try:
-            # In production:
-            # request = parameter_server_pb2.VersionRequest(job_id=job_id)
-            # response = self.stub.GetModelVersion(request)
-            
-            # Simulate
-            response = {
+            if self.stub and parameter_server_pb2 is not None:
+                response = self.stub.GetModelVersion(
+                    parameter_server_pb2.VersionRequest(job_id=job_id)
+                )
+                return {
+                    "current_version": response.current_version,
+                    "epoch": response.epoch,
+                    "total_updates": response.total_updates,
+                    "last_update_timestamp": response.last_update_timestamp
+                }
+
+            return {
                 "current_version": self.current_version,
                 "epoch": 0,
                 "total_updates": 0,
                 "last_update_timestamp": int(time.time())
             }
-            
-            return response
             
         except Exception as e:
             logger.error(f"Failed to get version: {e}")

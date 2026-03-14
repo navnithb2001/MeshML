@@ -15,6 +15,8 @@ from app.services.parameter_storage import (
     CheckpointType,
     ParameterFormat
 )
+from app.services.model_registry_client import ModelRegistryClient
+import pickle
 
 
 router = APIRouter(prefix="/parameters", tags=["Parameter Storage"])
@@ -82,6 +84,11 @@ class CheckpointResponse(BaseModel):
     size_bytes: int
     metrics: Dict[str, float]
     metadata: Dict[str, Any]
+
+
+class LearningRateRequest(BaseModel):
+    """Learning rate update request"""
+    learning_rate: float = Field(..., gt=0, description="Learning rate value")
 
 
 class ParameterDeltaResponse(BaseModel):
@@ -252,6 +259,19 @@ async def create_checkpoint(
             metrics=request.metrics,
             metadata=request.metadata
         )
+
+        try:
+            parameters = service.get_parameters(model_id)
+            if parameters is not None:
+                payload = pickle.dumps(parameters)
+                client = ModelRegistryClient()
+                await client.upload_checkpoint(
+                    model_id=int(model_id),
+                    checkpoint_type=checkpoint.checkpoint_type.value,
+                    state_dict=payload
+                )
+        except Exception:
+            pass
         
         return CheckpointResponse(
             checkpoint_id=checkpoint.checkpoint_id,
@@ -276,6 +296,23 @@ async def create_checkpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create checkpoint: {str(e)}"
         )
+
+
+@router.put("/{model_id}/learning-rate")
+async def update_learning_rate(
+    model_id: str,
+    request: LearningRateRequest,
+    service: ParameterStorageService = Depends(get_parameter_storage_service)
+):
+    try:
+        if not service.enable_redis or not service.redis_client:
+            raise HTTPException(status_code=503, detail="Redis unavailable")
+        service.redis_client.set(f"lr:{model_id}", str(request.learning_rate))
+        return {"model_id": model_id, "learning_rate": request.learning_rate}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get(

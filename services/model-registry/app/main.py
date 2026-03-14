@@ -11,11 +11,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 import sys
+import os
 
 from .routers import models, search, lifecycle, versions
 from .database import create_tables, get_db_session
 from .storage.gcs_client import GCSClient
 from .config import settings
+from .grpc_server import start_grpc_server
 
 # Configure logging
 logging.basicConfig(
@@ -47,6 +49,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️  GCS not available (will use local storage): {e}")
         app.state.gcs_client = None
+
+    grpc_host = settings.GRPC_HOST if hasattr(settings, "GRPC_HOST") else "0.0.0.0"
+    grpc_port = int(os.getenv("GRPC_PORT", "50052"))
+    try:
+        await start_grpc_server(app, grpc_host, grpc_port)
+        logger.info(f"✅ gRPC server ready on {grpc_host}:{grpc_port}")
+    except Exception as e:
+        logger.error(f"❌ Failed to start gRPC server: {e}")
+        logger.warning("⚠️ gRPC server not available")
     
     logger.info("✨ Model Registry Service ready!")
     
@@ -54,6 +65,13 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("🛑 Shutting down Model Registry Service...")
+    grpc_server = getattr(app.state, "grpc_server", None)
+    if grpc_server:
+        try:
+            await grpc_server.stop(grace=1)
+            logger.info("✅ gRPC server stopped")
+        except Exception as e:
+            logger.error(f"Error stopping gRPC server: {e}")
 
 
 # Create FastAPI app

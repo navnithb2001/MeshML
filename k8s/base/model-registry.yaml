@@ -21,6 +21,8 @@ spec:
         ports:
         - containerPort: 8004
           name: http
+        - containerPort: 50052
+          name: grpc
         envFrom:
         - configMapRef:
             name: meshml-config
@@ -61,5 +63,9 @@ spec:
     targetPort: 8004
     protocol: TCP
     name: http
+  - port: 50052
+    targetPort: 50052
+    protocol: TCP
+    name: grpc
   selector:
     app: model-registry

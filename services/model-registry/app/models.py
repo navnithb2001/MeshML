@@ -54,6 +54,7 @@ class Model(Base):
     # Versioning
     version = Column(String(50), default="1.0.0")
     parent_model_id = Column(Integer, nullable=True, index=True)  # Self-referential, no FK constraint
+    checkpoint_version = Column(Integer, default=0)  # Incremented on each checkpoint upload
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

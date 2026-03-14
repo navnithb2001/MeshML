@@ -652,6 +652,7 @@ class ParameterStorageService:
     ) -> None:
         """Persist parameters to Redis"""
         key = f"params:{model_id}:v{version_id}"
+        version_key = f"params:{model_id}:current_version"
         
         # Serialize parameters
         buffer = io.BytesIO()
@@ -660,8 +661,30 @@ class ParameterStorageService:
         
         # Store in Redis
         self.redis_client.set(key, buffer.read())
+        self.redis_client.set(version_key, str(version_id))
         
         logger.debug(f"Persisted to Redis: {key}")
+
+    def get_latest_parameters(self, model_id: str) -> tuple[Optional[Dict[str, torch.Tensor]], Optional[int]]:
+        """Get latest parameters preferring Redis as the source of truth."""
+        if self.enable_redis and self.redis_client:
+            version_key = f"params:{model_id}:current_version"
+            raw_version = self.redis_client.get(version_key)
+            if raw_version:
+                try:
+                    version_id = int(raw_version)
+                    params = self._load_from_redis(model_id, version_id)
+                    if params is not None:
+                        self.current_versions[model_id] = version_id
+                        return params, version_id
+                except Exception:
+                    pass
+
+        if model_id in self.parameters:
+            version_id = self.current_versions.get(model_id, 0)
+            return self.parameters[model_id], version_id
+
+        return None, None
     
     def _load_from_redis(
         self,

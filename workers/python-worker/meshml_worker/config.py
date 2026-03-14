@@ -46,6 +46,15 @@ class ModelRegistryConfig(BaseModel):
     retry_delay: float = Field(default=2.0, description="Delay between retries in seconds")
 
 
+class MetricsServiceConfig(BaseModel):
+    """Metrics Service configuration"""
+    
+    grpc_url: str = Field(default="localhost:50055", description="Metrics Service gRPC URL")
+    timeout: int = Field(default=30, description="Request timeout in seconds")
+    max_retries: int = Field(default=3, description="Maximum retry attempts")
+    retry_delay: float = Field(default=2.0, description="Delay between retries in seconds")
+
+
 class WorkerIdentityConfig(BaseModel):
     """Worker identity configuration"""
     
@@ -118,11 +127,13 @@ class LoggingConfig(BaseModel):
 class WorkerConfig(BaseModel):
     """Complete worker configuration"""
     
+    api_base_url: str = Field(default="http://localhost:8000", description="API Gateway URL")
     worker: WorkerIdentityConfig = Field(default_factory=WorkerIdentityConfig)
     parameter_server: ParameterServerConfig = Field(default_factory=ParameterServerConfig)
     dataset_sharder: DatasetSharderConfig = Field(default_factory=DatasetSharderConfig)
     task_orchestrator: TaskOrchestratorConfig = Field(default_factory=TaskOrchestratorConfig)
     model_registry: ModelRegistryConfig = Field(default_factory=ModelRegistryConfig)
+    metrics_service: MetricsServiceConfig = Field(default_factory=MetricsServiceConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)

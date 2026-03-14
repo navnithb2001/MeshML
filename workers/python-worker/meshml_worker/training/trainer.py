@@ -9,6 +9,7 @@ Handles:
 - Progress tracking
 """
 
+import asyncio
 import logging
 import time
 from pathlib import Path
@@ -55,9 +56,11 @@ class Trainer:
         grpc_client: HTTPClient,
         device: str,
         orchestrator_client: Optional[Any] = None,
+        metrics_client: Optional[Any] = None,
         job_id: Optional[str] = None,
         model_path: Optional[Path] = None,
-        data_paths: Optional[List[Path]] = None
+        data_paths: Optional[List[Path]] = None,
+        pause_event: Optional[asyncio.Event] = None
     ):
         """Initialize trainer
         
@@ -76,9 +79,11 @@ class Trainer:
         
         # Orchestrator integration
         self.orchestrator_client = orchestrator_client
+        self.metrics_client = metrics_client
         self.job_id = job_id
         self.model_path = model_path
         self.data_paths = data_paths
+        self.pause_event = pause_event
         
         # Components
         self.model: Optional[nn.Module] = None
@@ -153,6 +158,12 @@ class Trainer:
             
             # Training loop
             max_epochs = epochs or 100
+
+            if self.metrics_client:
+                await self.metrics_client.start(
+                    job_id=job_id,
+                    worker_id=self.config.worker.id or "unknown"
+                )
             
             for epoch in range(self.current_epoch, max_epochs):
                 self.current_epoch = epoch
@@ -215,6 +226,8 @@ class Trainer:
                         logger.error(f"Failed to report failure for batch {batch_id}: {report_err}")
             raise
         finally:
+            if self.metrics_client:
+                await self.metrics_client.close()
             self._cleanup()
     
     async def _train_epoch_with_reporting(
@@ -249,6 +262,9 @@ class Trainer:
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch + 1}")
         
         for batch_idx, (data, target) in enumerate(pbar):
+            if self.pause_event:
+                while self.pause_event.is_set():
+                    await asyncio.sleep(1.0)
             # Move data to device
             data = data.to(self.device)
             target = target.to(self.device)
@@ -279,6 +295,7 @@ class Trainer:
             total += target.size(0)
             correct += (predicted == target).sum().item()
             batch_count += 1
+            batch_accuracy = 100.0 * (predicted == target).sum().item() / target.size(0)
             
             # Update progress bar
             avg_loss = epoch_loss / batch_count
@@ -287,6 +304,15 @@ class Trainer:
                 "loss": f"{avg_loss:.4f}",
                 "acc": f"{accuracy:.2f}%"
             })
+
+            self.current_iteration += 1
+            if self.metrics_client:
+                await self.metrics_client.send(
+                    step=self.current_iteration,
+                    loss=loss.item(),
+                    accuracy=batch_accuracy,
+                    timestamp_ms=int(time.time() * 1000)
+                )
             
             # Report to orchestrator every N batches or at the end of a shard
             if self.orchestrator_client and batch_ids and (batch_idx + 1) % batches_per_shard == 0:

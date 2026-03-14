@@ -21,6 +21,8 @@ spec:
         ports:
         - containerPort: 8001
           name: http
+        - containerPort: 50053
+          name: grpc
         envFrom:
         - configMapRef:
             name: meshml-config
@@ -61,5 +63,9 @@ spec:
     targetPort: 8001
     protocol: TCP
     name: http
+  - port: 50053
+    targetPort: 50053
+    protocol: TCP
+    name: grpc
   selector:
     app: dataset-sharder

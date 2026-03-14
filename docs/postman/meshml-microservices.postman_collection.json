@@ -688,6 +688,110 @@
           }
         },
         {
+          "name": "POST /api/datasets/upload/folder",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/datasets/upload/folder",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "my-dataset",
+                  "type": "text"
+                },
+                {
+                  "key": "format",
+                  "value": "zip",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/datasets/from-url",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/datasets/from-url",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"cifar-10-dataset\",\n  \"url\": \"https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz\",\n  \"format\": \"imagefolder\"\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /api/datasets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/datasets"
+          }
+        },
+        {
+          "name": "GET /api/datasets/{dataset_id}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{api_gateway_base_url}}/api/datasets/{dataset_id}"
+          }
+        },
+        {
           "name": "GET /health",
           "request": {
             "method": "GET",
@@ -982,6 +1086,29 @@
               }
             ],
             "url": "{{dataset_sharder_base_url}}/health"
+          }
+        },
+        {
+          "name": "POST /shard",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dataset_id\": \"example-dataset\",\n  \"dataset_path\": \"/path/or/gs://bucket/path\",\n  \"format\": \"imagefolder\",\n  \"num_shards\": 10,\n  \"strategy\": \"stratified\",\n  \"batch_size\": 32,\n  \"seed\": 42\n}"
+            },
+            "url": "{{dataset_sharder_base_url}}/api/v1/shard"
           }
         }
       ]

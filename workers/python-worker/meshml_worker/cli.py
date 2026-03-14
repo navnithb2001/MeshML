@@ -11,6 +11,7 @@ Commands:
 """
 
 import sys
+import os
 from pathlib import Path
 from typing import Optional
 import click
@@ -20,13 +21,18 @@ from meshml_worker.main import MeshMLWorker
 
 
 @click.group()
-@click.version_option(version="0.2.2")
+@click.version_option(version="0.2.5")
 def main() -> None:
     """MeshML Worker - Federated Learning Worker"""
     pass
 
 
 @main.command()
+@click.option(
+    "--api-url",
+    default=None,
+    help="API Gateway URL (optional if configured)"
+)
 @click.option(
     "--parameter-server-url",
     default="http://localhost:8003",
@@ -71,6 +77,7 @@ def main() -> None:
     help="Force overwrite existing configuration"
 )
 def init(
+    api_url: str,
     parameter_server_url: str,
     task_orchestrator_url: str,
     worker_id: Optional[str],
@@ -94,6 +101,8 @@ def init(
     config = WorkerConfig()
     config.worker.id = worker_id
     config.worker.name = worker_name
+    if api_url:
+        config.api_base_url = api_url
     config.parameter_server.url = parameter_server_url
     config.task_orchestrator.grpc_url = task_orchestrator_url
     config.training.device = device
@@ -107,14 +116,16 @@ def init(
     click.echo(f"✓ Worker initialized successfully!")
     click.echo(f"  Worker ID: {config.worker.id}")
     click.echo(f"  Config: {config_path}")
+    click.echo(f"  API Gateway: {config.api_base_url}")
     click.echo(f"  Parameter Server: {parameter_server_url}")
     click.echo(f"  Task Orchestrator: {task_orchestrator_url}")
     click.echo(f"  Device: {device}")
     click.echo()
     click.echo("Next steps:")
     click.echo("  1. Review configuration: cat .meshml/config.yaml")
-    click.echo("  2. Login: meshml-worker login")
-    click.echo("  3. Run worker: meshml-worker run --user-id <user_id>")
+    click.echo("  2. Update API URL in config if needed")
+    click.echo("  3. Login: meshml-worker login")
+    click.echo("  4. Run worker: meshml-worker run --user-id <user_id>")
 
 
 @main.command()
@@ -129,24 +140,20 @@ def init(
     hide_input=True,
     help="User password"
 )
-@click.option(
-    "--api-url",
-    default="http://34.69.215.43",
-    help="API Gateway URL"
-)
-def login(email: str, password: str, api_url: str) -> None:
+def login(email: str, password: str) -> None:
     """Login to MeshML platform"""
     
     try:
         from meshml_worker.registration import WorkerRegistration
         
-        # Create minimal config object for authentication
-        class AuthConfig:
-            def __init__(self):
-                self.worker = type('Worker', (), {'worker_id': 'temp', 'user_email': None})()
-        
-        config = AuthConfig()
+        config = load_config()
+        api_url = os.getenv("MESHML_API_URL") or getattr(config, "api_base_url", None)
+        if not api_url:
+            click.echo("✗ Missing API URL. Run 'meshml-worker init' first or set MESHML_API_URL.", err=True)
+            sys.exit(1)
         config.api_base_url = api_url
+        if not getattr(config, "worker", None):
+            config.worker = type('Worker', (), {'worker_id': 'temp', 'user_email': None})()
         
         # Initialize registration manager
         registration = WorkerRegistration(config)
@@ -179,24 +186,22 @@ def login(email: str, password: str, api_url: str) -> None:
     prompt=True,
     help="Worker device ID (e.g., laptop-1, gpu-server-2)"
 )
-@click.option(
-    "--api-url",
-    default="http://34.69.215.43",
-    help="API Gateway URL"
-)
-def join(invitation_code: str, worker_id: str, api_url: str) -> None:
+def join(invitation_code: str, worker_id: str) -> None:
     """Join a group using invitation code (requires prior login)"""
     
     try:
         from meshml_worker.registration import WorkerRegistration
         
-        # Create minimal config object
-        class AuthConfig:
-            def __init__(self):
-                self.worker = type('Worker', (), {'worker_id': worker_id, 'user_email': None})()
-        
-        config = AuthConfig()
+        config = load_config()
+        api_url = os.getenv("MESHML_API_URL") or getattr(config, "api_base_url", None)
+        if not api_url:
+            click.echo("✗ Missing API URL. Run 'meshml-worker init' first or set MESHML_API_URL.", err=True)
+            sys.exit(1)
         config.api_base_url = api_url
+        if not getattr(config, "worker", None):
+            config.worker = type('Worker', (), {'worker_id': worker_id, 'user_email': None})()
+        else:
+            config.worker.worker_id = worker_id
         
         # Initialize registration manager (will load saved auth token)
         registration = WorkerRegistration(config)
@@ -378,11 +383,8 @@ def status(config: Optional[Path]) -> None:
     click.echo("Worker Status:")
     click.echo(f"  ID: {worker_config.worker.id}")
     click.echo(f"  Name: {worker_config.worker.name}")
-    click.echo(f"  Parameter Server: {worker_config.parameter_server.url}")
     click.echo(f"  Device: {worker_config.training.device}")
     click.echo(f"  Batch Size: {worker_config.training.batch_size}")
-    click.echo(f"  Mixed Precision: {worker_config.training.mixed_precision}")
-    click.echo(f"  Storage: {worker_config.storage.base_dir}")
     
     # Check device availability
     try:

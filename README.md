@@ -1,202 +1,118 @@
-# 🌐 MeshML - Student-Mesh Distributed ML Trainer
+# MeshML
 
-> Transform a network of student devices into a powerful distributed GPU for machine learning training
+# MeshML: Distributed Machine Learning Platform
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![C++17](https://img.shields.io/badge/c++-17-blue.svg)](https://isocpp.org/)
-[![TypeScript](https://img.shields.io/badge/typescript-5.0+-blue.svg)](https://www.typescriptlang.org/)
-
-## 📖 Overview
-
-**MeshML** is a high-performance distributed systems infrastructure that parallelizes Machine Learning training across heterogeneous consumer devices (laptops and mobile phones). By treating individual devices as "cores," it mimics GPU architecture at the software level.
-
-### Key Features
-
-- 🚀 **Distributed Training**: Partition datasets and distribute workloads across WiFi mesh networks
-- ⚡ **Asynchronous Gradient Aggregation**: Handle slow devices ("stragglers") gracefully
-- 🛡️ **Fault Tolerant**: Continue training even when devices disconnect
-- 📱 **Cross-Platform Workers**: Native C++ for laptops, JavaScript/WASM for mobile browsers
-- 📊 **Real-Time Monitoring**: Live dashboard with training metrics and worker health
-- 🔒 **Secure**: RBAC, JWT authentication, TLS encryption
-
-## 🏗️ Architecture
-
-MeshML uses a **heterogeneous, OS-agnostic architecture** that allows Windows, macOS, Linux, and even mobile devices to participate in distributed training.
-
-```
-┌─────────────┐
-│  Dashboard  │ ← GraphQL Subscriptions
-└──────┬──────┘
-       │
-┌──────▼──────────────────────────────────────────┐
-│              API Gateway (FastAPI)              │
-│         Job Management · RBAC · Monitoring       │
-└──────┬──────────────────────────────────────────┘
-       │
-   ┌───┴───┬─────────────┬──────────────┐
-   │       │             │              │
-┌──▼───┐ ┌─▼────┐ ┌─────▼─────┐ ┌──────▼──────┐
-│Dataset│ │ Task │ │Parameter  │ │   Metrics   │
-│Sharder│ │Orch. │ │  Server   │ │   Service   │
-└───────┘ └──────┘ └─────┬─────┘ └─────────────┘
-                         │
-              ┌──────────┴──────────┬──────────────┐
-              │                     │              │
-         ┌────▼─────┐        ┌─────▼────┐   ┌─────▼────┐
-         │  Python  │        │C++ Worker│   │JS Worker │
-         │  Worker  │        │ (Windows)│   │(Android) │
-         │  (macOS) │        │  CUDA GPU│   │ Browser  │
-         └──────────┘        └──────────┘   └──────────┘
-```
-
-### Key Architecture Principles
-
-✅ **Cross-Platform Communication**: gRPC + Protocol Buffers work on any OS  
-✅ **Centralized Coordination**: Workers communicate through services, not peer-to-peer  
-✅ **Capability-Based Assignment**: Workers report hardware, get appropriate tasks  
-✅ **On-Demand Data Fetching**: Batches downloaded from S3-compatible storage  
-✅ **Fault Tolerant**: Workers can join/leave anytime, orphaned batches reassigned
-
-📚 **Complete Architecture:**
-- [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) - Complete system design, data flows, validation, testing, deployment
-
-### Component Overview
-
-- **API Gateway**: REST API for job submission and worker registration
-- **Dataset Sharder**: Intelligent data partitioning with stratified sampling
-- **Task Orchestrator**: Heartbeat monitoring, task scheduling, straggler mitigation
-- **Parameter Server**: Staleness-aware gradient aggregation and model synchronization
-- **Metrics Service**: Real-time accuracy, F1-score, and AUC computation
-- **Workers**: High-performance (C++/LibTorch) and lightweight (JS/ONNX Runtime)
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- **Python**: 3.11+
-- **Node.js**: 18+
-- **C++ Compiler**: GCC 11+, Clang 14+, or MSVC 2022
-- **Docker**: 24.0+ (for local development)
-- **PostgreSQL**: 15+
-- **Redis**: 7.2+
-
-### Local Development Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/meshml.git
-cd meshml
-
-# Start infrastructure services
-cd infrastructure/docker
-docker-compose up -d postgres redis
-
-# Initialize database
-cd ../../scripts/setup
-./init_db.sh
-
-# Install Python dependencies for a service (e.g., API Gateway)
-cd ../../services/api-gateway
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-# Run the API Gateway
-python -m app.main
-```
-
-### Run a Training Job
-
-```bash
-# Submit a job via API
-curl -X POST http://localhost:8000/api/v1/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_type": "resnet18",
-    "dataset": "cifar10",
-    "target_accuracy": 0.85
-  }'
-```
-
-## 📚 Documentation
-
-- [Getting Started Guide](docs/guides/getting-started.md)
-- [Architecture Overview](docs/architecture/)
-- [API Reference](docs/api/openapi.yaml)
-- [Worker Setup - Laptop](docs/guides/worker-setup-laptop.md)
-- [Worker Setup - Mobile](docs/guides/worker-setup-mobile.md)
-- [Development Guide](docs/development/local-setup.md)
-- [Contributing](docs/CONTRIBUTING.md)
-
-## 🛠️ Technology Stack
-
-| Layer | Technology |
-|-------|------------|
-| **Backend** | Python (FastAPI, gRPC), C++17, JavaScript |
-| **ML Framework** | PyTorch 2.1+, LibTorch, ONNX Runtime |
-| **Databases** | PostgreSQL 15, Redis 7.2, TimescaleDB |
-| **Communication** | gRPC, REST, GraphQL, WebSockets |
-| **Frontend** | React 18, TypeScript, Tailwind CSS |
-| **Infrastructure** | Docker, Kubernetes, Helm |
-| **Monitoring** | Prometheus, Grafana, Jaeger |
-
-## 🧪 Testing
-
-```bash
-# Run unit tests for Python services
-cd services/api-gateway
-pytest tests/ -v
-
-# Run C++ tests
-cd workers/cpp-worker/build
-ctest --verbose
-
-# Run JavaScript tests
-cd workers/js-worker
-npm test
-```
-
-## 📊 Project Status
-
-**Current Phase**: Phase 0 - Infrastructure Setup
-
-- [x] Project structure initialized
-- [x] Docker Compose setup
-- [x] CI/CD pipeline
-- [x] Database migrations
-- [x] gRPC protocol definitions
-
-See [TASKS.md](docs/TASKS.md) for full roadmap and [PROGRESS.md](docs/PROGRESS.md) for detailed status.
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
-
-### Development Workflow
-
-1. Pick a task from [TASKS.md](docs/TASKS.md)
-2. Create a feature branch: `git checkout -b feature/TASK-X.Y`
-3. Make changes following our [code standards](docs/development/code-standards.md)
-4. Write tests (min. 80% coverage)
-5. Submit a PR with clear description
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Inspired by distributed training systems at Meta (PyTorch) and Google (TensorFlow)
-- Built for educational purposes to teach distributed systems concepts
-- Special thanks to student contributors
-
-## 📬 Contact
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/meshml/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/meshml/discussions)
-- **Email**: meshml-dev@example.com
+MeshML is a high-performance, distributed machine learning ecosystem designed to bridge the gap between local development and large-scale cloud training. The architecture utilizes a **microservices model**, leveraging a hybrid of **REST/WebSockets** for user interaction and **gRPC** for high-speed, internal data synchronization.
 
 ---
 
-**Built with ❤️ for the student ML community**
+## 🏗️ System Architecture
+
+The system is organized into four functional planes to ensure separation of concerns and high availability:
+
+* **Ingestion Plane:** Manages the entry of raw training scripts (`model.py`) and datasets.
+* **Control Plane:** Manages job scheduling, worker orchestration, and model versioning.
+* **Data Plane:** Optimized for high-throughput binary data movement (weights and shards).
+* **Observability Plane:** Provides real-time feedback and historical tracking of training performance.
+
+---
+
+## 🛠️ Core Components
+
+### 1. API Gateway (The Entry Point)
+Acts as the central router for all external traffic. It provides a RESTful interface for job submission and serves as a protocol bridge, translating external HTTP requests into internal gRPC calls.
+
+### 2. Dataset Sharder & Model Registry
+* **Sharder:** Automatically partitions large datasets into optimized binary shards. It maintains the `data_batches` table to track task availability.
+* **Registry:** Manages versioned checkpoints and final model artifacts. It handles SHA-256 integrity hashing and generates Signed URLs for secure data access.
+
+### 3. Task Orchestrator (The Brain)
+Maintains bidirectional gRPC streams with all active workers. It uses a **Push Model** to assign tasks: the moment a data batch is ready, the Orchestrator pushes a packet to an idle worker containing Signed URLs for both the code and the data.
+
+### 4. Parameter Server (The Math Engine)
+Implements an **Asynchronous SGD** strategy. It manages global model weights in a high-speed Redis store and applies an **Exponential Staleness Penalty** ($e^{-\lambda \cdot \Delta v}$) to ensure slow workers do not corrupt the global model state.
+
+---
+
+## 📡 Protocol Split & Communication
+
+MeshML uses a "Hybrid Protocol" strategy to optimize for both compatibility and performance:
+
+| Connection Path | Protocol | Purpose |
+| :--- | :--- | :--- |
+| **User ↔ Gateway** | **HTTP / REST** | Browser compatibility and CLI tool support. |
+| **Worker ↔ Storage** | **HTTP Signed URLs** | High-speed file transfers bypassing application logic. |
+| **Internal Mesh** | **gRPC (Binary)** | Low-latency, strongly-typed internal service communication. |
+| **Live Dashboard** | **WebSockets** | Real-time streaming of loss and accuracy metrics. |
+
+---
+
+## 🛡️ Lifecycle & Fault Tolerance
+
+* **Self-Healing Workers:** If a gRPC stream is interrupted, the Orchestrator automatically reverts the assigned batch to `AVAILABLE` for re-assignment.
+* **Resource Respect:** Workers include a background monitor (`psutil`) that pauses training if local CPU/RAM usage exceeds 80%.
+* **Persistence:** The Parameter Server snapshots Redis weights into persistent object storage (GCS/MinIO) every $N$ versions to prevent data loss.
+* **Cleanup:** Cascading delete logic ensures that when a dataset is removed, all associated cloud objects and database shards are purged.
+
+---
+
+## 🚀 Getting Started
+
+### 1) Start the platform (local)
+
+```bash
+docker compose -f docker/docker-compose.yml up -d
+```
+
+### 2) Initialize the database
+
+```bash
+psql -h localhost -p 5432 -U meshml -d meshml -f scripts/init-db.sql
+```
+
+### 3) Use the API Gateway for ingestion
+
+1. **Upload model and dataset** via API Gateway endpoints.
+2. **Start a job** for a model version.
+
+The API Gateway will trigger sharding and orchestration via gRPC internally.
+
+### 4) Start workers
+
+Use the Python worker:
+
+```bash
+pip install -e workers/python-worker
+meshml-worker init --api-url http://localhost:8000
+meshml-worker login --email you@example.com
+meshml-worker join --invitation-code inv_abc123 --worker-id my-laptop
+meshml-worker run
+```
+
+### 5) Monitor progress
+
+- **WebSocket:** `GET /api/ws/jobs/{job_id}/stats` (live metrics + status changes)
+- **Fallback:** `GET /api/jobs/{job_id}/status`
+
+### 6) Download the final model
+
+- **Final model:** `GET /api/models/{model_id}/download`
+- **Checkpoint:** `GET /api/models/{model_id}/checkpoints/{version}`
+
+## Services
+
+- API Gateway (REST + WebSocket)
+- Task Orchestrator (gRPC)
+- Dataset Sharder (gRPC)
+- Parameter Server (gRPC)
+- Model Registry (REST + gRPC)
+- Metrics Service (gRPC)
+
+## Repo Layout (What Matters)
+
+- `services/` – microservices
+- `workers/python-worker/` – worker agent
+- `proto/` – source .proto definitions
+- `docker/` – local compose
+- `k8s/` – Kubernetes manifests
+- `scripts/init-db.sql` – database bootstrap
