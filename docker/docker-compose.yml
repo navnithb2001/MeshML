@@ -1,8 +1,6 @@
 # MeshML Platform - Docker Compose Configuration
 # Complete distributed ML training system
 
-version: '3.8'
-
 services:
   # ============================================================================
   # Infrastructure Services
@@ -44,7 +42,7 @@ services:
       - meshml-network
 
   minio:
-    image: minio/minio:RELEASE.2024-10-29T16-01-48Z
+    image: minio/minio:latest
     container_name: meshml-minio
     ports:
       - "9000:9000"
@@ -64,7 +62,7 @@ services:
       - meshml-network
 
   minio-init:
-    image: minio/mc:RELEASE.2024-10-29T16-01-48Z
+    image: minio/mc:latest
     container_name: meshml-minio-init
     depends_on:
       minio:
@@ -125,7 +123,7 @@ services:
     container_name: meshml-model-registry
     ports:
       - "8004:8004"
-      - "50052:50052"
+      - "50054:50052"
     environment:
       DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
       GCS_BUCKET_NAME: meshml-models-local

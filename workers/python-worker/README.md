@@ -11,7 +11,7 @@ Minimal usage guide for the Python worker.
 ## Install
 
 ```bash
-pip install meshml-worker
+pip install -i https://test.pypi.org/simple/ meshml-worker==0.2.6
 ```
 
 ## Configure

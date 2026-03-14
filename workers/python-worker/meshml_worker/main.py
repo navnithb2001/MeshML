@@ -7,7 +7,7 @@ Coordinates training, communication, and checkpoint management.
 import logging
 import asyncio
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple, Callable
 import signal
 import sys
 import json
@@ -18,6 +18,95 @@ from meshml_worker.config import WorkerConfig
 
 
 logger = logging.getLogger(__name__)
+
+
+class BlobCache:
+    """Simple file hash cache used to avoid unnecessary re-downloads."""
+
+    def __init__(self, cache_path: Path):
+        self.cache_path = cache_path
+
+    async def _read_cache(self) -> Dict[str, Any]:
+        if not self.cache_path.exists():
+            return {}
+        try:
+            return json.loads(self.cache_path.read_text())
+        except Exception:
+            return {}
+
+    async def _write_cache(self, cache: Dict[str, Any]) -> None:
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self.cache_path.write_text(json.dumps(cache, indent=2))
+
+    async def hash_file(self, path: Path) -> str:
+        def _compute() -> str:
+            sha = hashlib.sha256()
+            with open(path, "rb") as file_obj:
+                for chunk in iter(lambda: file_obj.read(8192), b""):
+                    sha.update(chunk)
+            return sha.hexdigest()
+
+        return await asyncio.to_thread(_compute)
+
+    async def should_use_cached(
+        self,
+        cache_key: str,
+        file_path: Path,
+        expected_sha256: Optional[str]
+    ) -> bool:
+        if not expected_sha256 or not file_path.exists():
+            return False
+
+        cache = await self._read_cache()
+        cache_entry = cache.get(cache_key, {})
+        if cache_entry.get("sha256") != expected_sha256:
+            return False
+
+        return (await self.hash_file(file_path)) == expected_sha256
+
+    async def record_download(
+        self,
+        cache_key: str,
+        source_url: str,
+        file_path: Path
+    ) -> str:
+        file_hash = await self.hash_file(file_path)
+        cache = await self._read_cache()
+        cache[cache_key] = {"url": source_url, "sha256": file_hash}
+        await self._write_cache(cache)
+        return file_hash
+
+
+class ResourceMonitor:
+    """Monitors local host resources and toggles pause event for training."""
+
+    def __init__(
+        self,
+        pause_event: asyncio.Event,
+        cpu_threshold: float = 80.0,
+        memory_threshold: float = 80.0,
+    ):
+        self.pause_event = pause_event
+        self.cpu_threshold = cpu_threshold
+        self.memory_threshold = memory_threshold
+
+    async def check_once(self) -> Tuple[float, float]:
+        cpu_usage = psutil.cpu_percent(interval=0.1)
+        memory_usage = psutil.virtual_memory().percent
+        if cpu_usage > self.cpu_threshold or memory_usage > self.memory_threshold:
+            if not self.pause_event.is_set():
+                logger.warning("High system usage detected; pausing training")
+            self.pause_event.set()
+        else:
+            if self.pause_event.is_set():
+                logger.info("Resources available; resuming training")
+            self.pause_event.clear()
+        return cpu_usage, memory_usage
+
+    async def run(self, is_running: Callable[[], bool]) -> None:
+        while is_running():
+            await self.check_once()
+            await asyncio.sleep(10)
 
 
 class MeshMLWorker:
@@ -131,67 +220,23 @@ class MeshMLWorker:
                        f"RAM={registration_result.get('ram_gb', 0):.1f} GB, "
                        f"GPU={registration_result.get('has_gpu', False)}")
             
-            cache_path = self.config.storage.models_dir / ".model_cache.json"
-
-            async def _read_cache() -> Dict[str, Any]:
-                if not cache_path.exists():
-                    return {}
-                try:
-                    return json.loads(cache_path.read_text())
-                except Exception:
-                    return {}
-
-            async def _write_cache(cache: Dict[str, Any]) -> None:
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                cache_path.write_text(json.dumps(cache, indent=2))
-
-            async def _hash_file(path: Path) -> str:
-                def _compute() -> str:
-                    h = hashlib.sha256()
-                    with open(path, "rb") as f:
-                        for chunk in iter(lambda: f.read(8192), b""):
-                            h.update(chunk)
-                    return h.hexdigest()
-                return await asyncio.to_thread(_compute)
+            cache = BlobCache(self.config.storage.models_dir / ".model_cache.json")
 
             async def _download(url: str, dest_path: Path, cache_key: str, expected_sha: Optional[str]) -> None:
                 import httpx
-                cache = await _read_cache()
-                if expected_sha and dest_path.exists():
-                    try:
-                        cached = cache.get(cache_key, {})
-                        if cached.get("sha256") == expected_sha:
-                            existing_hash = await _hash_file(dest_path)
-                            if existing_hash == expected_sha:
-                                logger.info(f"Using cached model: {dest_path}")
-                                return
-                    except Exception:
-                        pass
+                if await cache.should_use_cached(cache_key, dest_path, expected_sha):
+                    logger.info(f"Using cached model: {dest_path}")
+                    return
 
                 async with httpx.AsyncClient(timeout=60) as http_client:
                     resp = await http_client.get(url)
                     resp.raise_for_status()
                     dest_path.parent.mkdir(parents=True, exist_ok=True)
                     dest_path.write_bytes(resp.content)
-                file_hash = await _hash_file(dest_path)
-                cache[cache_key] = {"url": url, "sha256": file_hash}
-                await _write_cache(cache)
+                await cache.record_download(cache_key, url, dest_path)
 
-            async def _resource_monitor() -> None:
-                while self.running and self._pause_event:
-                    cpu = psutil.cpu_percent(interval=0.1)
-                    mem = psutil.virtual_memory().percent
-                    if cpu > 80.0 or mem > 80.0:
-                        if not self._pause_event.is_set():
-                            logger.warning("High system usage detected; pausing training")
-                            self._pause_event.set()
-                    else:
-                        if self._pause_event.is_set():
-                            logger.info("Resources available; resuming training")
-                            self._pause_event.clear()
-                    await asyncio.sleep(10)
-
-            monitor_task = asyncio.create_task(_resource_monitor())
+            monitor = ResourceMonitor(self._pause_event)
+            monitor_task = asyncio.create_task(monitor.run(lambda: bool(self.running and self._pause_event)))
             job_progress: Dict[str, Dict[str, int]] = {}
 
             async def _handle_assignment(assignment, hyperparameters):
