@@ -29,8 +29,12 @@ import httpx
 # Reuse generated stubs from python worker package.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "workers" / "python-worker"))
-from meshml_worker.proto import parameter_server_pb2, parameter_server_pb2_grpc  # noqa: E402
-from meshml_worker.proto import task_orchestrator_pb2, task_orchestrator_pb2_grpc  # noqa: E402
+from meshml_worker.proto import (  # noqa: E402
+    parameter_server_pb2,
+    parameter_server_pb2_grpc,
+    task_orchestrator_pb2,
+    task_orchestrator_pb2_grpc,
+)
 
 
 @dataclass

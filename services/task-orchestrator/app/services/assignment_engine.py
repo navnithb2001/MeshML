@@ -71,7 +71,9 @@ class AssignmentEngine:
 
                 async with AsyncSessionLocal() as session:
                     if not self._visibility_logged:
-                        total_result = await session.execute(select(func.count()).select_from(DataBatch))
+                        total_result = await session.execute(
+                            select(func.count()).select_from(DataBatch)
+                        )
                         available_result = await session.execute(
                             select(func.count())
                             .select_from(DataBatch)

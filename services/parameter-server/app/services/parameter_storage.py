@@ -18,13 +18,13 @@ import hashlib
 import io
 import json
 import logging
-import pickle
 import os
-from urllib.parse import urlparse
+import pickle
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import numpy as np
 import redis
@@ -139,8 +139,10 @@ class ParameterStorageService:
                 parsed = urlparse(redis_url)
                 redis_host = redis_host or parsed.hostname or "localhost"
                 redis_port = redis_port or parsed.port or 6379
-                redis_db = redis_db if redis_db is not None else int(
-                    (parsed.path or "/0").lstrip("/") or 0
+                redis_db = (
+                    redis_db
+                    if redis_db is not None
+                    else int((parsed.path or "/0").lstrip("/") or 0)
                 )
             else:
                 redis_host = redis_host or os.getenv("REDIS_HOST", "localhost")

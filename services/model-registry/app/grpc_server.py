@@ -30,11 +30,7 @@ class ModelRegistryServicer(model_registry_pb2_grpc.ModelRegistryServicer):
         self.emulator_bucket = settings.GCS_BUCKET_NAME
 
     def _get_emulator_client(self):
-        access_key = (
-            os.getenv("AWS_ACCESS_KEY_ID")
-            or os.getenv("MINIO_ROOT_USER")
-            or "meshml"
-        )
+        access_key = os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("MINIO_ROOT_USER") or "meshml"
         secret_key = (
             os.getenv("AWS_SECRET_ACCESS_KEY")
             or os.getenv("MINIO_ROOT_PASSWORD")
@@ -198,7 +194,9 @@ class ModelRegistryServicer(model_registry_pb2_grpc.ModelRegistryServicer):
                 filename = request.filename or "model.py"
                 key = self._resolve_storage_key(model.id, model.gcs_path)
                 # Preserve requested filename only when model path is not already explicit.
-                if model.gcs_path and (model.gcs_path.endswith(".py") or model.gcs_path.endswith(".pt")):
+                if model.gcs_path and (
+                    model.gcs_path.endswith(".py") or model.gcs_path.endswith(".pt")
+                ):
                     pass
                 elif filename:
                     key = self._default_model_key(model.id, filename=filename)

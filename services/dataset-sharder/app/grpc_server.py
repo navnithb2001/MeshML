@@ -8,8 +8,8 @@ import grpc
 from app.config import settings
 from app.core.storage import get_dataset_storage
 from app.proto import dataset_sharder_pb2, dataset_sharder_pb2_grpc
-from app.services.batch_storage import BatchManager, create_storage_backend
 from app.services.batch_persistence import persist_batches
+from app.services.batch_storage import BatchManager, create_storage_backend
 from app.services.data_distribution import DataDistributor, DistributionStrategy
 from app.services.dataset_loader import DatasetFormat, create_loader
 from app.services.dataset_sharder import DatasetSharder, ShardingConfig, ShardingStrategy

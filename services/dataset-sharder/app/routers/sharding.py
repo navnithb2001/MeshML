@@ -8,8 +8,8 @@ from typing import Any, Dict, List, Optional
 
 from app.config import settings
 from app.routers.distribution import get_batch_manager
-from app.services.batch_storage import BatchManager
 from app.services.batch_persistence import persist_batches
+from app.services.batch_storage import BatchManager
 from app.services.dataset_loader import DatasetFormat, create_loader
 from app.services.dataset_sharder import DatasetSharder, ShardingConfig, ShardingStrategy
 from fastapi import APIRouter, Depends, HTTPException
@@ -106,7 +106,9 @@ async def shard_dataset(
             )
 
         if request.job_id and request.model_id:
-            await persist_batches(job_id=request.job_id, model_id=request.model_id, batches=all_batches)
+            await persist_batches(
+                job_id=request.job_id, model_id=request.model_id, batches=all_batches
+            )
 
         return {
             "success": True,
