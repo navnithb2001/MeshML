@@ -11,8 +11,8 @@ from meshml_worker.config import WorkerConfig
 from meshml_worker.main import MeshMLWorker
 from meshml_worker.utils.optimization import (
     MemoryProfiler,
-    PerformanceBenchmark,
     OptimizedDataLoader,
+    PerformanceBenchmark,
     optimize_dataloader_settings,
 )
 

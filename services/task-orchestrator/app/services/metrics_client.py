@@ -5,7 +5,6 @@ import os
 import time
 
 import grpc
-
 from app.proto import metrics_pb2, metrics_pb2_grpc
 
 logger = logging.getLogger(__name__)
@@ -13,10 +12,7 @@ logger = logging.getLogger(__name__)
 
 class MetricsClient:
     def __init__(self, grpc_url: str | None = None):
-        self.grpc_url = grpc_url or os.getenv(
-            "METRICS_SERVICE_GRPC_URL",
-            "metrics-service:50055"
-        )
+        self.grpc_url = grpc_url or os.getenv("METRICS_SERVICE_GRPC_URL", "metrics-service:50055")
 
     async def send_job_finished(self, job_id: str) -> None:
         try:
@@ -30,7 +26,7 @@ class MetricsClient:
                         loss=0.0,
                         accuracy=0.0,
                         timestamp_ms=int(time.time() * 1000),
-                        worker_id="JOB_FINISHED"
+                        worker_id="JOB_FINISHED",
                     )
                 )
                 await call.done_writing()

@@ -1,12 +1,14 @@
 """Dataset schemas"""
 
-from pydantic import BaseModel, HttpUrl
-from typing import Optional, Dict, Any, List
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, HttpUrl
 
 
 class DatasetUploadResponse(BaseModel):
     """Response after dataset upload"""
+
     dataset_id: str
     name: str
     format: str
@@ -23,22 +25,24 @@ class DatasetUploadResponse(BaseModel):
 
 class DatasetFromURLRequest(BaseModel):
     """Request to download dataset from URL"""
+
     url: str
     name: Optional[str] = None
     format: Optional[str] = None  # imagefolder, coco, csv
-    
+
     class Config:
         json_schema_extra = {
             "example": {
                 "url": "https://drive.google.com/file/d/1abc123xyz/view",
                 "name": "My CIFAR-10 Dataset",
-                "format": "imagefolder"
+                "format": "imagefolder",
             }
         }
 
 
 class DatasetResponse(BaseModel):
     """Dataset information response"""
+
     id: str
     name: str
     format: str
@@ -59,12 +63,13 @@ class DatasetResponse(BaseModel):
     uploaded_by: str
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True
 
 
 class DatasetListResponse(BaseModel):
     """List of datasets response"""
+
     datasets: List[DatasetResponse]
     total: int

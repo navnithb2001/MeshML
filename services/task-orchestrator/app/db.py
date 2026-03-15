@@ -1,7 +1,8 @@
 """Database session for Task Orchestrator."""
 
 import os
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
 
 DATABASE_URL = os.getenv("TASK_ORCHESTRATOR_DATABASE_URL")
@@ -14,10 +15,7 @@ if not DATABASE_URL:
     DATABASE_URL = f"postgresql+asyncpg://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
 engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    pool_pre_ping=True,
-    connect_args={"ssl": False}
+    DATABASE_URL, echo=False, pool_pre_ping=True, connect_args={"ssl": False}
 )
 
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

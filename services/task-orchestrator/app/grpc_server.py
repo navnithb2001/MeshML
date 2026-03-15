@@ -5,29 +5,28 @@ import json
 import logging
 import os
 import uuid
-from typing import Optional, List
+from typing import List, Optional
 
 import grpc
-from sqlalchemy import select, text, func
-from redis import Redis
-
-from app.proto import task_orchestrator_pb2, task_orchestrator_pb2_grpc
-from app.services.worker_discovery import WorkerDiscoveryService, WorkerCapabilities
-from app.services.worker_registry import WorkerRegistry
-from app.services.job_queue import JobQueue, JobRequirements, JobMetadata, JobPriority
-from app.services.task_assignment import TaskAssignmentService
-from app.services.dataset_sharder_client import DatasetSharderClient
-from app.services.model_registry_client import ModelRegistryClient
-from app.services.assignment_engine import AssignmentEngine
-from app.services.metrics_client import MetricsClient
 from app.db import AsyncSessionLocal
 from app.models import DataBatch
+from app.proto import task_orchestrator_pb2, task_orchestrator_pb2_grpc
+from app.services.assignment_engine import AssignmentEngine
+from app.services.dataset_sharder_client import DatasetSharderClient
+from app.services.job_queue import JobMetadata, JobPriority, JobQueue, JobRequirements
+from app.services.metrics_client import MetricsClient
+from app.services.model_registry_client import ModelRegistryClient
+from app.services.task_assignment import TaskAssignmentService
+from app.services.worker_discovery import WorkerCapabilities, WorkerDiscoveryService
+from app.services.worker_registry import WorkerRegistry
+from redis import Redis
+from sqlalchemy import func, select, text
 
 logger = logging.getLogger(__name__)
 
 
 def _bytes_to_gb(num_bytes: int) -> float:
-    return num_bytes / (1024 ** 3)
+    return num_bytes / (1024**3)
 
 
 class StreamManager:
@@ -69,7 +68,7 @@ class StreamManager:
         hyper = {
             "model_id": payload.get("model_id"),
             "dataset_id": payload.get("dataset_id"),
-            "total_batches": payload.get("total_batches")
+            "total_batches": payload.get("total_batches"),
         }
         assignment = task_orchestrator_pb2.TaskAssignment(
             has_task=True,
@@ -81,14 +80,14 @@ class StreamManager:
             hyperparameters=json.dumps(hyper).encode("utf-8"),
             message="assigned",
             model_url=payload.get("model_url", ""),
-            data_url=payload.get("data_url", "")
+            data_url=payload.get("data_url", ""),
         )
         await queue.put(
             task_orchestrator_pb2.OrchestratorStreamResponse(
-                worker_id=worker_id,
-                assignment=assignment
+                worker_id=worker_id, assignment=assignment
             )
         )
+
 
 class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServicer):
     """gRPC servicer implementing Task Orchestrator APIs."""
@@ -100,7 +99,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         task_assignment: TaskAssignmentService,
         worker_registry: WorkerRegistry,
         model_registry: Optional[ModelRegistryClient] = None,
-        metrics_client: Optional[MetricsClient] = None
+        metrics_client: Optional[MetricsClient] = None,
     ):
         self.worker_discovery = worker_discovery
         self.job_queue = job_queue
@@ -110,15 +109,22 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         self.metrics_client = metrics_client
         self.redis = job_queue.redis if hasattr(job_queue, "redis") else None
         self._batch_failures: dict[str, int] = {}
-        self.strict_failure = os.getenv("STRICT_FAILURE", "false").lower() in ("1", "true", "yes", "on")
+        self.strict_failure = os.getenv("STRICT_FAILURE", "false").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
         self._sharded_datasets = set()
         self._shard_lock = asyncio.Lock()
         self.stream_manager = StreamManager()
         self.assignment_engine = AssignmentEngine(self.stream_manager)
         self._assignment_stop = asyncio.Event()
-        self._assignment_task = asyncio.create_task(self.assignment_engine.run(self._assignment_stop))
+        self._assignment_task = asyncio.create_task(
+            self.assignment_engine.run(self._assignment_stop)
+        )
 
-    async def SubmitJob(self, request, context):
+    async def InitiateTraining(self, request, context):
         try:
             requirements = JobRequirements(
                 min_gpu_count=request.requirements.min_gpu_count,
@@ -127,7 +133,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 min_ram_gb=request.requirements.min_ram_gb,
                 requires_cuda=request.requirements.requires_cuda,
                 requires_mps=request.requirements.requires_mps,
-                max_execution_time_seconds=request.requirements.max_execution_time_seconds or 3600
+                max_execution_time_seconds=request.requirements.max_execution_time_seconds or 3600,
             )
 
             metadata = JobMetadata(
@@ -142,7 +148,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 optimizer=request.optimizer or "adam",
                 requirements=requirements,
                 tags=dict(request.tags),
-                description=request.description or ""
+                description=request.description or "",
             )
 
             try:
@@ -177,7 +183,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 supports_cuda=supports_cuda,
                 supports_mps=supports_mps,
                 pytorch_version=request.frameworks.get("pytorch", "unknown"),
-                python_version=request.frameworks.get("python", "unknown")
+                python_version=request.frameworks.get("python", "unknown"),
             )
 
             self.worker_discovery.register_worker(
@@ -188,14 +194,14 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 capabilities=capabilities,
                 group_id=group_id,
                 version="1.0.0",
-                tags={"device_type": request.device_type}
+                tags={"device_type": request.device_type},
             )
 
             return task_orchestrator_pb2.WorkerRegistration(
                 worker_id=worker_id,
                 groups=[group_id],
                 heartbeat_interval_seconds=self.worker_discovery.config.heartbeat_timeout_seconds,
-                message="registered"
+                message="registered",
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
@@ -206,7 +212,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             return task_orchestrator_pb2.HeartbeatAck(
                 success=success,
                 message="ok" if success else "worker not found",
-                server_timestamp=int(asyncio.get_event_loop().time())
+                server_timestamp=int(asyncio.get_event_loop().time()),
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
@@ -216,8 +222,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             worker = self.worker_registry.get_worker(request.worker_id)
             if not worker:
                 return task_orchestrator_pb2.TaskAssignment(
-                    has_task=False,
-                    message="worker not registered"
+                    has_task=False, message="worker not registered"
                 )
 
             # Use preferred job if provided
@@ -235,36 +240,35 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                     min_cpu_count=worker.capabilities.cpu_count,
                     min_ram_gb=worker.capabilities.ram_gb,
                     requires_cuda=worker.capabilities.supports_cuda,
-                    requires_mps=worker.capabilities.supports_mps
+                    requires_mps=worker.capabilities.supports_mps,
                 )
                 job_info = self.job_queue.get_next_job(requirements)
 
             if not job_info:
                 return task_orchestrator_pb2.TaskAssignment(
-                    has_task=False,
-                    message="no jobs available"
+                    has_task=False, message="no jobs available"
                 )
 
             # Ensure sharding and assign batches for this worker
-            batch_ids, shard_id = await self._ensure_shards_and_assign_batches(job_info, worker.worker_id)
+            batch_ids, shard_id = await self._ensure_shards_and_assign_batches(
+                job_info, worker.worker_id
+            )
 
             # Assign job to worker in registry/queue
             self.worker_discovery.assign_job_to_worker(
                 job_id=job_info.job_id,
                 worker_id=worker.worker_id,
-                shard_ids=[shard_id] if shard_id is not None else []
+                shard_ids=[shard_id] if shard_id is not None else [],
             )
             self.worker_registry.assign_job(
-                worker_id=worker.worker_id,
-                job_id=job_info.job_id,
-                shard_id=shard_id
+                worker_id=worker.worker_id, job_id=job_info.job_id, shard_id=shard_id
             )
 
             # Build hyperparameters payload (JSON)
             hyper = {
                 "model_id": job_info.metadata.model_id,
                 "dataset_id": job_info.metadata.dataset_id,
-                "batch_ids": batch_ids
+                "batch_ids": batch_ids,
             }
 
             if self.model_registry and job_info.metadata.model_id:
@@ -288,7 +292,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 model_gcs_path=hyper.get("model_gcs_path", ""),
                 current_epoch=job_info.current_epoch,
                 hyperparameters=json.dumps(hyper).encode("utf-8"),
-                message="assigned"
+                message="assigned",
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
@@ -297,6 +301,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         try:
             worker_id = None
             outbound = asyncio.Queue()
+
             async def _reader():
                 nonlocal worker_id
                 try:
@@ -307,15 +312,17 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                         self.stream_manager.register(worker_id, outbound)
 
                         if request.HasField("heartbeat"):
-                            success = self.worker_registry.update_heartbeat(worker_id, request.heartbeat.status)
+                            success = self.worker_registry.update_heartbeat(
+                                worker_id, request.heartbeat.status
+                            )
                             await outbound.put(
                                 task_orchestrator_pb2.OrchestratorStreamResponse(
                                     worker_id=worker_id,
                                     heartbeat_ack=task_orchestrator_pb2.HeartbeatAck(
                                         success=success,
                                         message="ok" if success else "worker not found",
-                                        server_timestamp=int(asyncio.get_event_loop().time())
-                                    )
+                                        server_timestamp=int(asyncio.get_event_loop().time()),
+                                    ),
                                 )
                             )
                         elif request.HasField("task_result"):
@@ -358,7 +365,11 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 await self._maybe_complete_job(job_id, model_id, session)
                 return
 
-            if self.strict_failure and result.error_message and "CRITICAL" in result.error_message.upper():
+            if (
+                self.strict_failure
+                and result.error_message
+                and "CRITICAL" in result.error_message.upper()
+            ):
                 batch.status = "FAILED"
                 batch.assigned_worker_id = None
                 await session.commit()
@@ -373,9 +384,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 await session.commit()
                 self.stream_manager.clear_assignment(result.worker_id)
                 await self._mark_job_failed(
-                    job_id,
-                    f"Batch {batch.id} failed {failure_count} times",
-                    session
+                    job_id, f"Batch {batch.id} failed {failure_count} times", session
                 )
             else:
                 batch.status = "AVAILABLE"
@@ -413,7 +422,8 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         if total_batches == 0:
             return
         completed_result = await session.execute(
-            select(func.count()).select_from(DataBatch)
+            select(func.count())
+            .select_from(DataBatch)
             .where(DataBatch.job_id == job_id)
             .where(DataBatch.status == "COMPLETED")
         )
@@ -440,7 +450,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             {
                 "job_id": job_id,
                 "uri": artifact_uri,
-            }
+            },
         )
         await session.commit()
 
@@ -457,7 +467,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             {
                 "job_id": job_id,
                 "message": message[:1000],
-            }
+            },
         )
         await session.commit()
 
@@ -467,7 +477,8 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         )
         total_batches = int(total_result.scalar() or 0)
         completed_result = await session.execute(
-            select(func.count()).select_from(DataBatch)
+            select(func.count())
+            .select_from(DataBatch)
             .where(DataBatch.job_id == job_id)
             .where(DataBatch.status == "COMPLETED")
         )
@@ -485,7 +496,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 "completed": completed_batches,
                 "total": total_batches,
                 "job_id": job_id,
-            }
+            },
         )
         await session.commit()
 
@@ -498,8 +509,8 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 progress={
                     "current_epoch": request.epoch,
                     "loss": request.loss,
-                    "accuracy": request.accuracy
-                }
+                    "accuracy": request.accuracy,
+                },
             )
             return task_orchestrator_pb2.BatchAck(success=True, message="ack", should_continue=True)
         except Exception as e:
@@ -508,15 +519,17 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
     async def ReportBatchFailed(self, request, context):
         try:
             self.job_queue.update_job_status(
-                request.job_id,
-                new_status=None,
-                error_message=request.error_message
+                request.job_id, new_status=None, error_message=request.error_message
             )
-            return task_orchestrator_pb2.BatchAck(success=True, message="ack", should_continue=False)
+            return task_orchestrator_pb2.BatchAck(
+                success=True, message="ack", should_continue=False
+            )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
-    async def _ensure_shards_and_assign_batches(self, job_info, worker_id: str) -> tuple[List[int], Optional[int]]:
+    async def _ensure_shards_and_assign_batches(
+        self, job_info, worker_id: str
+    ) -> tuple[List[int], Optional[int]]:
         dataset_id = job_info.metadata.dataset_id
 
         async with self._shard_lock:
@@ -549,13 +562,15 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                     num_shards=num_shards,
                     strategy=shard_strategy,
                     batch_size=batch_size,
-                    seed=42
+                    seed=42,
                 )
 
                 self._sharded_datasets.add(dataset_id)
 
         client = DatasetSharderClient()
-        assignment = await client.assign_batches(worker_ids=[worker_id], strategy="shard_per_worker")
+        assignment = await client.assign_batches(
+            worker_ids=[worker_id], strategy="shard_per_worker"
+        )
 
         assignments = assignment.get("assignments", {})
         worker_assignment = assignments.get(worker_id, {})
@@ -597,7 +612,7 @@ def create_grpc_services() -> TaskOrchestratorServicer:
         task_assignment,
         worker_registry,
         model_registry=model_registry,
-        metrics_client=metrics_client
+        metrics_client=metrics_client,
     )
 
 

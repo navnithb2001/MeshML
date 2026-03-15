@@ -3,8 +3,8 @@
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
 from threading import Lock
+from typing import Dict, List, Optional
 
 from app.services.worker_discovery import WorkerCapabilities, WorkerStatus
 
@@ -44,7 +44,7 @@ class WorkerRegistry:
         capabilities,
         group_id: Optional[str] = None,
         version: str = "1.0.0",
-        tags: Optional[Dict[str, str]] = None
+        tags: Optional[Dict[str, str]] = None,
     ) -> RegistryWorker:
         with self._lock:
             if isinstance(capabilities, dict):
@@ -60,7 +60,7 @@ class WorkerRegistry:
                 capabilities=caps,
                 group_id=group_id,
                 version=version,
-                tags=tags or {}
+                tags=tags or {},
             )
             self._workers[worker_id] = worker
             logger.info(f"Worker registered: {worker_id}")
@@ -74,9 +74,7 @@ class WorkerRegistry:
             return removed
 
     def list_workers(
-        self,
-        group_id: Optional[str] = None,
-        min_gpu_count: int = 0
+        self, group_id: Optional[str] = None, min_gpu_count: int = 0
     ) -> List[RegistryWorker]:
         with self._lock:
             workers = list(self._workers.values())

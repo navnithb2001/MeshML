@@ -10,12 +10,11 @@ import os
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-
-from app.routers.auth import get_current_user
-from app.models.user import User
 from app.clients.model_registry_client import ModelRegistryClient
+from app.models.user import User
 from app.proto import model_registry_pb2
+from app.routers.auth import get_current_user
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -30,7 +29,7 @@ async def upload_model(
     architecture_type: Optional[str] = Form(None),
     dataset_type: Optional[str] = Form(None),
     version: Optional[str] = Form("1.0.0"),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     Upload model.py via API Gateway.
@@ -52,7 +51,7 @@ async def upload_model(
 
     client = ModelRegistryClient()
     try:
-        registration = await client.register_model(
+        registration = await client.register_new_model(
             model_registry_pb2.RegisterModelRequest(
                 name=name,
                 description=description or "",
@@ -61,7 +60,7 @@ async def upload_model(
                 architecture_type=architecture_type or "",
                 dataset_type=dataset_type or "",
                 version=version or "1.0.0",
-                metadata={}
+                metadata={},
             )
         )
     except Exception as e:
@@ -71,14 +70,11 @@ async def upload_model(
     try:
         async with httpx.AsyncClient(timeout=60) as http_client:
             put_resp = await http_client.put(
-                registration.upload_url,
-                content=content,
-                headers={"Content-Type": "text/x-python"}
+                registration.upload_url, content=content, headers={"Content-Type": "text/x-python"}
             )
             if put_resp.status_code not in (200, 201):
                 raise HTTPException(
-                    status_code=502,
-                    detail=f"Signed upload failed: {put_resp.status_code}"
+                    status_code=502, detail=f"Signed upload failed: {put_resp.status_code}"
                 )
     except HTTPException:
         raise
@@ -92,7 +88,7 @@ async def upload_model(
                 model_id=registration.model_id,
                 gcs_path=registration.gcs_path,
                 file_size_bytes=file_size,
-                file_hash=file_hash
+                file_hash=file_hash,
             )
         )
     except Exception as e:
@@ -103,15 +99,12 @@ async def upload_model(
         "model_id": registration.model_id,
         "gcs_path": registration.gcs_path,
         "file_size_bytes": file_size,
-        "file_hash": file_hash
+        "file_hash": file_hash,
     }
 
 
 @router.get("/{model_id}/download")
-async def download_final_model(
-    model_id: int,
-    current_user: User = Depends(get_current_user)
-):
+async def download_final_model(model_id: int, current_user: User = Depends(get_current_user)):
     """
     Get signed download URL for final model artifact.
     """
@@ -123,15 +116,13 @@ async def download_final_model(
         "model_id": model_id,
         "download_url": response.download_url,
         "storage_path": response.storage_path,
-        "expires_in_seconds": response.expires_in_seconds
+        "expires_in_seconds": response.expires_in_seconds,
     }
 
 
 @router.get("/{model_id}/checkpoints/{version}")
 async def download_checkpoint(
-    model_id: int,
-    version: str,
-    current_user: User = Depends(get_current_user)
+    model_id: int, version: str, current_user: User = Depends(get_current_user)
 ):
     """
     Get signed download URL for a specific checkpoint version.

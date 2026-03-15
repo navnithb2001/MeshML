@@ -2,4 +2,4 @@
 
 from .manager import VersionManager
 
-__all__ = ['VersionManager']
+__all__ = ["VersionManager"]

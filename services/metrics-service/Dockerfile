@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Generate gRPC stubs from local .proto sources
+RUN python scripts/generate_protos.py
+
 # Create non-root user
 RUN useradd -m -u 1000 meshml && \
     chown -R meshml:meshml /app

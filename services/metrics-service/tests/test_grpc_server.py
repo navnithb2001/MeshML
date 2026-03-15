@@ -2,13 +2,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-
+from app.db import Base
 from app.grpc_server import MetricsService
 from app.models import MetricPoint as MetricPointModel
-from app.db import Base
 from app.proto import metrics_pb2
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
 class FakeSession:
@@ -75,7 +74,9 @@ async def test_metric_model_works_with_sqlite_in_memory() -> None:
             await session.commit()
 
         async with session_maker() as session:
-            result = await session.execute(select(MetricPointModel).where(MetricPointModel.job_id == "job-2"))
+            result = await session.execute(
+                select(MetricPointModel).where(MetricPointModel.job_id == "job-2")
+            )
             row = result.scalar_one()
             assert row.step == 2
     finally:

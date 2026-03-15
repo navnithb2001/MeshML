@@ -1,15 +1,8 @@
 """Database models package"""
 
-from .user import User
-from .group import Group, GroupMember, GroupInvitation
-from .worker import Worker
+from .group import Group, GroupInvitation, GroupMember
 from .job import Job
+from .user import User
+from .worker import Worker
 
-__all__ = [
-    "User",
-    "Group",
-    "GroupMember",
-    "GroupInvitation",
-    "Worker",
-    "Job"
-]
+__all__ = ["User", "Group", "GroupMember", "GroupInvitation", "Worker", "Job"]

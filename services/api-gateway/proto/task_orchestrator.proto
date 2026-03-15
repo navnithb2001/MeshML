@@ -5,7 +5,7 @@ package meshml.orchestrator;
 // Task Orchestrator Service - Worker lifecycle and task management
 service TaskOrchestrator {
   // Job submission from API Gateway
-  rpc SubmitJob(JobSubmission) returns (JobSubmissionAck);
+  rpc InitiateTraining(JobSubmission) returns (JobSubmissionAck);
 
   // Worker registers with the system and provides capabilities
   rpc RegisterWorker(WorkerCapabilities) returns (WorkerRegistration);

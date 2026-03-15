@@ -1,10 +1,9 @@
 import io
 import math
-import pickle
 
+import numpy as np
 import pytest
 import torch
-
 from app.grpc_server import ParameterServerServicer
 from app.proto import parameter_server_pb2
 
@@ -43,13 +42,17 @@ class FakeStorage:
 
     def _persist_to_redis(self, model_id, version, params):
         buffer = io.BytesIO()
-        torch.save(params, buffer)
+        arrays = {
+            k: v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else np.asarray(v)
+            for k, v in params.items()
+        }
+        np.savez(buffer, **arrays)
         self.redis_client.set(f"params:{model_id}:v{version}", buffer.getvalue())
         self.redis_client.set(f"params:{model_id}:current_version", str(version))
 
 
 @pytest.mark.asyncio
-async def test_update_gradients_applies_staleness_and_momentum() -> None:
+async def test_push_gradients_applies_staleness_and_momentum() -> None:
     servicer = ParameterServerServicer()
     servicer.momentum = 0.9
     servicer.staleness_lambda = 0.3
@@ -65,7 +68,7 @@ async def test_update_gradients_applies_staleness_and_momentum() -> None:
     storage.current_versions[model_id] = 1
 
     gradients = {"w": torch.tensor([2.0])}
-    payload = pickle.dumps(gradients)
+    payload = servicer._dump_tensor_dict(gradients)
 
     request = parameter_server_pb2.GradientsUpdate(
         job_id=model_id,
@@ -76,7 +79,7 @@ async def test_update_gradients_applies_staleness_and_momentum() -> None:
         learning_rate=0.1,
     )
 
-    response = await servicer.UpdateGradients(request, context=None)
+    response = await servicer.PushGradients(request, context=None)
     assert response.success is True
     assert response.new_version == 2
 
@@ -93,7 +96,7 @@ async def test_update_gradients_applies_staleness_and_momentum() -> None:
         compression_type="none",
         learning_rate=0.1,
     )
-    response_2 = await servicer.UpdateGradients(request_2, context=None)
+    response_2 = await servicer.PushGradients(request_2, context=None)
 
     assert response_2.success is True
     assert response_2.new_version == 3

@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 import grpc
 import pytest
-
 from app.grpc_server import DatasetSharderServicer
 from app.proto import dataset_sharder_pb2
 
@@ -19,7 +18,10 @@ class FakeContext:
 
 @pytest.mark.asyncio
 async def test_shard_dataset_rejects_unsupported_format() -> None:
-    with patch("app.grpc_server._get_batch_manager"), patch("app.grpc_server.DataDistributor") as mock_distributor:
+    with (
+        patch("app.grpc_server._get_batch_manager"),
+        patch("app.grpc_server.DataDistributor") as mock_distributor,
+    ):
         mock_distributor.return_value = SimpleNamespace()
 
         servicer = DatasetSharderServicer()

@@ -5,10 +5,10 @@ package meshml.parameter_server;
 // Parameter Server Service - Gradient aggregation and model weight distribution
 service ParameterServer {
   // Worker fetches current model weights
-  rpc GetWeights(WeightsRequest) returns (WeightsResponse);
+  rpc PullWeights(WeightsRequest) returns (WeightsResponse);
   
   // Worker sends computed gradients
-  rpc UpdateGradients(GradientsUpdate) returns (GradientsAck);
+  rpc PushGradients(GradientsUpdate) returns (GradientsAck);
   
   // Worker fetches optimizer state (Adam momentum, etc.)
   rpc GetOptimizerState(OptimizerStateRequest) returns (OptimizerStateResponse);

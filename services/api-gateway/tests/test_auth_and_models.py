@@ -3,12 +3,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
-
 from app.routers import models
 from app.routers.auth import get_current_user
 from app.utils.security import create_access_token, decode_access_token
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture
@@ -40,7 +39,7 @@ async def test_upload_model_validates_required_fields(app: FastAPI) -> None:
 async def test_upload_model_maps_grpc_registration_error_to_502(app: FastAPI) -> None:
     with patch("app.routers.models.ModelRegistryClient") as client_ctor:
         client_instance = client_ctor.return_value
-        client_instance.register_model = AsyncMock(side_effect=RuntimeError("grpc unavailable"))
+        client_instance.register_new_model = AsyncMock(side_effect=RuntimeError("grpc unavailable"))
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -58,8 +57,10 @@ async def test_upload_model_maps_grpc_registration_error_to_502(app: FastAPI) ->
 async def test_upload_model_maps_signed_upload_error_to_502(app: FastAPI) -> None:
     with patch("app.routers.models.ModelRegistryClient") as client_ctor:
         client_instance = client_ctor.return_value
-        client_instance.register_model = AsyncMock(
-            return_value=SimpleNamespace(model_id=1, upload_url="http://signed-upload", gcs_path="gs://bucket/path")
+        client_instance.register_new_model = AsyncMock(
+            return_value=SimpleNamespace(
+                model_id=1, upload_url="http://signed-upload", gcs_path="gs://bucket/path"
+            )
         )
         client_instance.finalize_model_upload = AsyncMock()
 

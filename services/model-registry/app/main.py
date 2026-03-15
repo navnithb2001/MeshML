@@ -5,27 +5,26 @@ FastAPI application for model lifecycle management, storage, and discovery.
 Handles model upload, validation, versioning, and search functionality.
 """
 
+import logging
+import os
+import sys
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import logging
-import sys
-import os
 
-from .routers import models, search, lifecycle, versions
-from .database import create_tables, get_db_session
-from .storage.gcs_client import GCSClient
 from .config import settings
+from .database import create_tables, get_db_session
 from .grpc_server import start_grpc_server
+from .routers import lifecycle, models, search, versions
+from .storage.gcs_client import GCSClient
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
@@ -35,11 +34,11 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     logger.info("🚀 Starting MeshML Model Registry Service...")
-    
+
     # Create database tables
     await create_tables()
     logger.info("✅ Database tables verified")
-    
+
     # Initialize GCS client (optional - will use local storage if GCS unavailable)
     try:
         gcs_client = GCSClient()
@@ -58,11 +57,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Failed to start gRPC server: {e}")
         logger.warning("⚠️ gRPC server not available")
-    
+
     logger.info("✨ Model Registry Service ready!")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("🛑 Shutting down Model Registry Service...")
     grpc_server = getattr(app.state, "grpc_server", None)
@@ -79,7 +78,7 @@ app = FastAPI(
     title="MeshML Model Registry",
     description="Model lifecycle management and discovery service",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # CORS middleware
@@ -101,8 +100,8 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={
             "error": "Internal server error",
-            "detail": str(exc) if settings.DEBUG else "An unexpected error occurred"
-        }
+            "detail": str(exc) if settings.DEBUG else "An unexpected error occurred",
+        },
     )
 
 
@@ -116,11 +115,7 @@ app.include_router(versions.router, prefix="/api/v1/versions", tags=["Versions"]
 @app.get("/")
 async def root():
     """Root endpoint"""
-    return {
-        "service": "MeshML Model Registry",
-        "version": "1.0.0",
-        "status": "operational"
-    }
+    return {"service": "MeshML Model Registry", "version": "1.0.0", "status": "operational"}
 
 
 @app.get("/health")
@@ -130,15 +125,11 @@ async def health_check():
         "status": "healthy",
         "service": "model-registry",
         "database": "connected",
-        "storage": "ready"
+        "storage": "ready",
     }
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8004,
-        reload=True
-    )
+
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8004, reload=True)

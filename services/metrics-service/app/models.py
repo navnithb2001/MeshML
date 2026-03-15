@@ -1,8 +1,7 @@
 """Database models for Metrics Service."""
 
-from sqlalchemy import Column, String, Integer, Float, DateTime, func
-
 from app.db import Base
+from sqlalchemy import Column, DateTime, Float, Integer, String, func
 
 
 class MetricPoint(Base):
@@ -13,4 +12,6 @@ class MetricPoint(Base):
     step = Column(Integer, nullable=False, index=True)
     loss = Column(Float, nullable=True)
     accuracy = Column(Float, nullable=True)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    timestamp = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )

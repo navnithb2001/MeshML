@@ -146,6 +146,10 @@ kubeconfig
 
 # Generated proto files
 proto/generated/
+services/*/app/proto/*_pb2.py
+services/*/app/proto/*_pb2_grpc.py
+workers/python-worker/meshml_worker/proto/*_pb2.py
+workers/python-worker/meshml_worker/proto/*_pb2_grpc.py
 
 # Monitoring data
 monitoring/prometheus/data/

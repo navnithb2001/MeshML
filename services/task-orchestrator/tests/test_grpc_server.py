@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-
 from app.grpc_server import TaskOrchestratorServicer
 from app.proto import task_orchestrator_pb2
 
@@ -36,8 +35,9 @@ class FakeWorkerRegistry:
 
 @pytest.mark.asyncio
 async def test_register_worker_returns_generated_worker():
-    with patch("app.grpc_server.AssignmentEngine", DummyAssignmentEngine), patch(
-        "app.grpc_server.asyncio.create_task", return_value=DummyTask()
+    with (
+        patch("app.grpc_server.AssignmentEngine", DummyAssignmentEngine),
+        patch("app.grpc_server.asyncio.create_task", return_value=DummyTask()),
     ):
         discovery = FakeWorkerDiscovery()
         registry = FakeWorkerRegistry()
@@ -64,8 +64,9 @@ async def test_register_worker_returns_generated_worker():
 
 @pytest.mark.asyncio
 async def test_send_heartbeat_acknowledges_registered_worker():
-    with patch("app.grpc_server.AssignmentEngine", DummyAssignmentEngine), patch(
-        "app.grpc_server.asyncio.create_task", return_value=DummyTask()
+    with (
+        patch("app.grpc_server.AssignmentEngine", DummyAssignmentEngine),
+        patch("app.grpc_server.asyncio.create_task", return_value=DummyTask()),
     ):
         servicer = TaskOrchestratorServicer(
             worker_discovery=FakeWorkerDiscovery(),

@@ -8,11 +8,10 @@ from typing import Optional
 
 import grpc
 import redis.asyncio as redis
-from sqlalchemy import insert
-
 from app.db import AsyncSessionLocal
 from app.models import MetricPoint as MetricPointModel
 from app.proto import metrics_pb2, metrics_pb2_grpc
+from sqlalchemy import insert
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,9 @@ class MetricsService(metrics_pb2_grpc.MetricsServiceServicer):
 
                 async with AsyncSessionLocal() as session:
                     if metric.timestamp_ms:
-                        timestamp = datetime.fromtimestamp(metric.timestamp_ms / 1000.0, tz=timezone.utc)
+                        timestamp = datetime.fromtimestamp(
+                            metric.timestamp_ms / 1000.0, tz=timezone.utc
+                        )
                     else:
                         timestamp = datetime.now(tz=timezone.utc)
                     await session.execute(
@@ -62,10 +63,7 @@ class MetricsService(metrics_pb2_grpc.MetricsServiceServicer):
 async def start_grpc_server(app, host: str, port: int) -> None:
     server = grpc.aio.server()
     redis_client = getattr(app.state, "redis_client", None)
-    metrics_pb2_grpc.add_MetricsServiceServicer_to_server(
-        MetricsService(redis_client),
-        server
-    )
+    metrics_pb2_grpc.add_MetricsServiceServicer_to_server(MetricsService(redis_client), server)
     server.add_insecure_port(f"{host}:{port}")
     await server.start()
     app.state.grpc_server = server

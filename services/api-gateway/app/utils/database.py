@@ -1,10 +1,11 @@
 """Database connection and session management"""
 
-import os
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
-from sqlalchemy import text
 import logging
+import os
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import declarative_base
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,9 @@ if not DATABASE_URL:
     # Build URL without SSL parameters (we'll add them to connect_args)
     DATABASE_URL = f"postgresql+asyncpg://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
-logger.info(f"Connecting to database at: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else DATABASE_URL}")
+logger.info(
+    f"Connecting to database at: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else DATABASE_URL}"
+)
 
 # Create async engine with SSL disabled for internal cluster communication
 engine = create_async_engine(
@@ -31,15 +34,11 @@ engine = create_async_engine(
     pool_size=20,
     max_overflow=10,
     pool_pre_ping=True,
-    connect_args={"ssl": False}  # Disable SSL for asyncpg
+    connect_args={"ssl": False},  # Disable SSL for asyncpg
 )
 
 # Session factory
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False
-)
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # Base class for models
 Base = declarative_base()
@@ -66,7 +65,7 @@ async def close_db():
 async def get_db():
     """
     Dependency for getting database session
-    
+
     Usage:
         @app.get("/items")
         async def get_items(db: AsyncSession = Depends(get_db)):

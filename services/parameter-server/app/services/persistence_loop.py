@@ -3,12 +3,11 @@
 import asyncio
 import io
 import logging
-from typing import Optional, Iterable
+from typing import Iterable, Optional
 
 import torch
-
-from app.services.parameter_storage import ParameterStorageService
 from app.services.model_registry_client import ModelRegistryClient
+from app.services.parameter_storage import ParameterStorageService
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,7 @@ class PersistenceLoop:
         model_registry: ModelRegistryClient,
         checkpoint_interval: int = 50,
         final_version: int = 500,
-        poll_interval: float = 5.0
+        poll_interval: float = 5.0,
     ):
         self.storage = storage
         self.model_registry = model_registry
@@ -108,23 +107,22 @@ class PersistenceLoop:
             if weights is not None:
                 payload = self._serialize_weights(weights)
                 await self.model_registry.upload_checkpoint(
-                    model_id=model_id,
-                    checkpoint_type=f"v{current_version}",
-                    state_dict=payload
+                    model_id=model_id, checkpoint_type=f"v{current_version}", state_dict=payload
                 )
                 self._set_last_checkpoint(job_id, current_version)
-                logger.info(f"Checkpoint saved for job {job_id} -> model {model_id} v{current_version}")
+                logger.info(
+                    f"Checkpoint saved for job {job_id} -> model {model_id} v{current_version}"
+                )
 
         if current_version >= self.final_version and not self._final_saved(job_id):
             weights = self._load_weights(job_id, current_version)
             if weights is not None:
                 payload = self._serialize_weights(weights)
-                await self.model_registry.upload_final_model(
-                    model_id=model_id,
-                    state_dict=payload
-                )
+                await self.model_registry.upload_final_model(model_id=model_id, state_dict=payload)
                 self._set_final_saved(job_id)
-                logger.info(f"Final model saved for job {job_id} -> model {model_id} v{current_version}")
+                logger.info(
+                    f"Final model saved for job {job_id} -> model {model_id} v{current_version}"
+                )
 
     async def run(self, stop_event: asyncio.Event) -> None:
         if not self.storage.enable_redis or not self.storage.redis_client:

@@ -1,8 +1,9 @@
 """Redis client for caching and real-time data"""
 
-import os
-import redis.asyncio as redis
 import logging
+import os
+
+import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ if not REDIS_URL:
     redis_password = os.getenv("REDIS_PASSWORD", "")
     redis_host = os.getenv("REDIS_HOST", "localhost")
     redis_port = os.getenv("REDIS_PORT", "6379")
-    
+
     # Include password if provided (format: redis://:password@host:port/db)
     if redis_password:
         REDIS_URL = f"redis://:{redis_password}@{redis_host}:{redis_port}/0"
@@ -31,19 +32,16 @@ redis_client: redis.Redis = None
 async def init_redis():
     """Initialize Redis connection"""
     global redis_client
-    
+
     try:
         redis_client = redis.from_url(
-            REDIS_URL,
-            encoding="utf-8",
-            decode_responses=True,
-            max_connections=50
+            REDIS_URL, encoding="utf-8", decode_responses=True, max_connections=50
         )
-        
+
         # Test connection
         await redis_client.ping()
         logger.info("Redis connection established")
-        
+
     except Exception as e:
         logger.error(f"Redis connection failed: {e}")
         raise
@@ -60,7 +58,7 @@ async def close_redis():
 def get_redis() -> redis.Redis:
     """
     Dependency for getting Redis client
-    
+
     Usage:
         @app.get("/cache")
         async def get_cache(redis: Redis = Depends(get_redis)):

@@ -4,13 +4,12 @@ import asyncio
 import logging
 from typing import Optional
 
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.db import AsyncSessionLocal
 from app.models import DataBatch
-from app.services.model_registry_client import ModelRegistryClient
 from app.services.dataset_sharder_client import DatasetSharderClient
+from app.services.model_registry_client import ModelRegistryClient
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +20,7 @@ class AssignmentEngine:
         self.poll_interval = poll_interval
         self.model_registry = ModelRegistryClient()
         self.dataset_sharder = DatasetSharderClient()
+        self._visibility_logged = False
 
     async def _fetch_available_batch(self, session: AsyncSession) -> Optional[DataBatch]:
         result = await session.execute(
@@ -58,7 +58,7 @@ class AssignmentEngine:
             "dataset_id": None,
             "model_url": model_url,
             "data_url": data_url,
-            "total_batches": total_batches
+            "total_batches": total_batches,
         }
 
     async def run(self, stop_event: asyncio.Event) -> None:
@@ -70,6 +70,26 @@ class AssignmentEngine:
                     continue
 
                 async with AsyncSessionLocal() as session:
+                    if not self._visibility_logged:
+                        total_result = await session.execute(select(func.count()).select_from(DataBatch))
+                        available_result = await session.execute(
+                            select(func.count())
+                            .select_from(DataBatch)
+                            .where(DataBatch.status == "AVAILABLE")
+                        )
+                        total_rows = int(total_result.scalar() or 0)
+                        available_rows = int(available_result.scalar() or 0)
+                        logger.info(
+                            "Pre-assignment data_batches visibility check: total=%s available=%s",
+                            total_rows,
+                            available_rows,
+                        )
+                        if total_rows == 0:
+                            logger.warning(
+                                "No rows found in data_batches yet; waiting for Dataset Sharder persistence"
+                            )
+                        self._visibility_logged = True
+
                     batch = await self._fetch_available_batch(session)
                     if not batch:
                         await asyncio.sleep(self.poll_interval)

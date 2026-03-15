@@ -2,9 +2,10 @@
 Database session management for Model Registry
 """
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import NullPool
 from typing import AsyncGenerator
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from .config import settings
 from .models import Base
@@ -15,24 +16,19 @@ engine = create_async_engine(
     echo=settings.DEBUG,
     poolclass=NullPool,  # Disable connection pooling for async
     future=True,
-    connect_args={"ssl": False}  # Disable SSL for internal cluster communication
+    connect_args={"ssl": False},  # Disable SSL for internal cluster communication
 )
 
 # Create session factory
 async_session_maker = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autocommit=False,
-    autoflush=False
+    engine, class_=AsyncSession, expire_on_commit=False, autocommit=False, autoflush=False
 )
 
 
 async def create_tables():
     """Create all database tables"""
-    # Tables are managed by the main database service
-    # Skip table creation to avoid foreign key issues
-    pass
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:

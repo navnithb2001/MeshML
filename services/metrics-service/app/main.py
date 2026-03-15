@@ -4,15 +4,15 @@ Metrics Service - Main Application
 Receives training metrics over gRPC, publishes to Redis, and persists to PostgreSQL.
 """
 
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import asyncio
 import logging
 import os
 import sys
 
 import redis.asyncio as redis
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -135,8 +135,8 @@ async def _progress_bridge(stop_event: asyncio.Event, interval_seconds: int = 7)
     """
     Periodically aggregate batch completion and update jobs.progress.
     """
-    from sqlalchemy import text
     from app.db import AsyncSessionLocal
+    from sqlalchemy import text
 
     while not stop_event.is_set():
         try:
@@ -166,7 +166,7 @@ async def _progress_bridge(stop_event: asyncio.Event, interval_seconds: int = 7)
                             "completed": completed_batches,
                             "total": total_batches,
                             "job_id": str(job_id),
-                        }
+                        },
                     )
                 await session.commit()
         except Exception as e:

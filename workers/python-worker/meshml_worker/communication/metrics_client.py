@@ -5,7 +5,6 @@ import logging
 from typing import Optional
 
 import grpc
-
 from meshml_worker.proto import metrics_pb2, metrics_pb2_grpc
 
 logger = logging.getLogger(__name__)

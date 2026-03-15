@@ -1,11 +1,12 @@
 """Security utilities for password hashing and JWT tokens"""
 
+import logging
 import os
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
-from passlib.context import CryptContext
+from typing import Any, Dict, Optional
+
 from jose import JWTError, jwt
-import logging
+from passlib.context import CryptContext
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +22,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24
 def hash_password(password: str) -> str:
     """
     Hash a password using bcrypt
-    
+
     Args:
         password: Plain text password
-        
+
     Returns:
         Hashed password
     """
@@ -34,11 +35,11 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a password against a hash
-    
+
     Args:
         plain_password: Plain text password
         hashed_password: Hashed password
-        
+
     Returns:
         True if password matches
     """
@@ -49,32 +50,26 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(
-    data: Dict[str, Any],
-    expires_delta: Optional[timedelta] = None
-) -> str:
+def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """
     Create a JWT access token
-    
+
     Args:
         data: Payload data to encode
         expires_delta: Optional expiration time delta
-        
+
     Returns:
         Encoded JWT token
     """
     to_encode = data.copy()
-    
+
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    to_encode.update({
-        "exp": expire,
-        "iat": datetime.utcnow()
-    })
-    
+
+    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
+
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -82,13 +77,13 @@ def create_access_token(
 def decode_access_token(token: str) -> Dict[str, Any]:
     """
     Decode and validate a JWT access token
-    
+
     Args:
         token: JWT token string
-        
+
     Returns:
         Decoded payload
-        
+
     Raises:
         JWTError: If token is invalid or expired
     """
@@ -103,19 +98,15 @@ def decode_access_token(token: str) -> Dict[str, Any]:
 def create_worker_token(worker_id: str, user_email: Optional[str] = None) -> str:
     """
     Create a JWT token for worker authentication
-    
+
     Args:
         worker_id: Worker ID
         user_email: Optional user email
-        
+
     Returns:
         JWT token
     """
     return create_access_token(
-        data={
-            "sub": worker_id,
-            "type": "worker",
-            "email": user_email
-        },
-        expires_delta=timedelta(days=365)  # Long-lived for workers
+        data={"sub": worker_id, "type": "worker", "email": user_email},
+        expires_delta=timedelta(days=365),  # Long-lived for workers
     )

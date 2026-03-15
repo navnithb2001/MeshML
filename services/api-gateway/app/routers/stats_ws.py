@@ -5,14 +5,13 @@ import json
 import logging
 import time
 import uuid
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
-import redis.asyncio as redis
-from sqlalchemy import select
 
+import redis.asyncio as redis
 from app.models.job import Job
 from app.utils.database import AsyncSessionLocal
-
 from app.utils.redis_client import get_redis
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +54,7 @@ async def job_stats_ws(
                     job_uuid = None
                 if job_uuid:
                     async with AsyncSessionLocal() as session:
-                        result = await session.execute(
-                            select(Job.status).where(Job.id == job_uuid)
-                        )
+                        result = await session.execute(select(Job.status).where(Job.id == job_uuid))
                         status = result.scalar_one_or_none()
                 else:
                     status = None

@@ -2,17 +2,17 @@
 
 import logging
 import os
-from typing import Optional, List
+from typing import List, Optional
 
 import grpc
-
-from app.proto import dataset_sharder_pb2, dataset_sharder_pb2_grpc
-from app.services.dataset_loader import create_loader, DatasetFormat
-from app.services.dataset_sharder import DatasetSharder, ShardingConfig, ShardingStrategy
-from app.services.batch_storage import BatchManager, create_storage_backend
-from app.services.data_distribution import DataDistributor, DistributionStrategy
-from app.core.storage import get_dataset_storage
 from app.config import settings
+from app.core.storage import get_dataset_storage
+from app.proto import dataset_sharder_pb2, dataset_sharder_pb2_grpc
+from app.services.batch_storage import BatchManager, create_storage_backend
+from app.services.batch_persistence import persist_batches
+from app.services.data_distribution import DataDistributor, DistributionStrategy
+from app.services.dataset_loader import DatasetFormat, create_loader
+from app.services.dataset_sharder import DatasetSharder, ShardingConfig, ShardingStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,7 @@ def _get_batch_manager() -> BatchManager:
     storage_type = os.getenv("BATCH_STORAGE_TYPE", "local")
     if storage_type == "gcs":
         storage = create_storage_backend(
-            storage_type="gcs",
-            bucket_name=settings.GCS_BUCKET_DATASETS,
-            base_prefix="batches"
+            storage_type="gcs", bucket_name=settings.GCS_BUCKET_DATASETS, base_prefix="batches"
         )
     else:
         storage = create_storage_backend(storage_type="local")
@@ -34,8 +32,7 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
     def __init__(self):
         self.batch_manager = _get_batch_manager()
         self.distributor = DataDistributor(
-            batch_manager=self.batch_manager,
-            strategy=DistributionStrategy.SHARD_PER_WORKER
+            batch_manager=self.batch_manager, strategy=DistributionStrategy.SHARD_PER_WORKER
         )
 
     async def ShardDataset(self, request, context):
@@ -45,7 +42,9 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
                 try:
                     dataset_format = DatasetFormat(request.format)
                 except ValueError:
-                    await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Unsupported dataset format")
+                    await context.abort(
+                        grpc.StatusCode.INVALID_ARGUMENT, "Unsupported dataset format"
+                    )
 
             loader = create_loader(request.dataset_path, format=dataset_format)
             metadata = loader.load_metadata()
@@ -53,14 +52,16 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
             try:
                 strategy = ShardingStrategy(request.strategy or "stratified")
             except ValueError:
-                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Unsupported sharding strategy")
+                await context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT, "Unsupported sharding strategy"
+                )
 
             batch_size = request.batch_size or settings.DEFAULT_BATCH_SIZE
             config = ShardingConfig(
                 num_shards=request.num_shards or 10,
                 strategy=strategy,
                 batch_size=batch_size,
-                seed=request.seed or 42
+                seed=request.seed or 42,
             )
 
             sharder = DatasetSharder(loader, config)
@@ -68,19 +69,29 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
 
             total_batches = 0
             shard_summaries: List[dataset_sharder_pb2.ShardSummary] = []
+            all_batches = []
             for shard in shards:
                 batches = self.batch_manager.create_batches_from_shard(
-                    shard=shard,
-                    loader=loader,
-                    batch_size=batch_size
+                    shard=shard, loader=loader, batch_size=batch_size
                 )
                 total_batches += len(batches)
+                all_batches.extend(batches)
                 shard_summaries.append(
                     dataset_sharder_pb2.ShardSummary(
                         shard_id=shard.shard_id,
                         num_samples=shard.num_samples,
-                        num_batches=len(batches)
+                        num_batches=len(batches),
                     )
+                )
+            if request.job_id and request.model_id:
+                inserted = await persist_batches(
+                    job_id=request.job_id, model_id=request.model_id, batches=all_batches
+                )
+                logger.info(
+                    "Persisted %s batches to data_batches for job_id=%s model_id=%s",
+                    inserted,
+                    request.job_id,
+                    request.model_id,
                 )
 
             return dataset_sharder_pb2.ShardDatasetResponse(
@@ -94,7 +105,7 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
                 batch_size=batch_size,
                 total_batches=total_batches,
                 strategy=strategy.value,
-                shards=shard_summaries
+                shards=shard_summaries,
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
@@ -112,7 +123,7 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
 
             assignments = self.distributor.assign_batches_to_workers(
                 worker_ids=list(request.worker_ids),
-                shard_id=request.shard_id if request.shard_id > 0 else None
+                shard_id=request.shard_id if request.shard_id > 0 else None,
             )
 
             assignment_list = []
@@ -124,14 +135,14 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
                         assigned_batches=assignment.assigned_batches,
                         total_samples=assignment.total_samples,
                         progress=assignment.get_progress(),
-                        is_complete=assignment.is_complete()
+                        is_complete=assignment.is_complete(),
                     )
                 )
 
             return dataset_sharder_pb2.AssignBatchesResponse(
                 success=True,
                 message=f"Assigned batches to {len(assignments)} workers",
-                assignments=assignment_list
+                assignments=assignment_list,
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
@@ -150,8 +161,8 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
                     assigned_batches=assignment.assigned_batches,
                     total_samples=assignment.total_samples,
                     progress=assignment.get_progress(),
-                    is_complete=assignment.is_complete()
-                )
+                    is_complete=assignment.is_complete(),
+                ),
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
@@ -168,12 +179,11 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
                     found=True,
                     download_url=download_url,
                     storage_path=storage_path,
-                    expires_in_seconds=3600
+                    expires_in_seconds=3600,
                 )
 
             return dataset_sharder_pb2.GetBatchDownloadUrlResponse(
-                found=False,
-                storage_path=storage_path
+                found=False, storage_path=storage_path
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))

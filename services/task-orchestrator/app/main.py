@@ -5,20 +5,21 @@ Coordinates distributed training tasks, manages worker registration,
 handles job queuing and assignment, and provides fault tolerance.
 """
 
+import logging
+import os
+import sys
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
-import logging
-import sys
 from redis import Redis
-import os
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 
 logger = logging.getLogger(__name__)
@@ -34,29 +35,26 @@ redis_client = None
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     global redis_client
-    
+
     # Startup
     logger.info("🚀 Starting Task Orchestrator Service...")
-    
+
     try:
         # Initialize Redis connection
         redis_host = os.getenv("REDIS_HOST", "redis")
         redis_port = int(os.getenv("REDIS_PORT", "6379"))
-        
+
         redis_client = Redis(
-            host=redis_host,
-            port=redis_port,
-            decode_responses=False,
-            socket_connect_timeout=5
+            host=redis_host, port=redis_port, decode_responses=False, socket_connect_timeout=5
         )
-        
+
         # Test connection
         redis_client.ping()
         logger.info(f"✅ Connected to Redis at {redis_host}:{redis_port}")
-        
+
         # Store Redis client in app state
         app.state.redis = redis_client
-        
+
     except Exception as e:
         logger.error(f"❌ Failed to connect to Redis: {e}")
         logger.warning("⚠️ Starting without Redis - some features may not work")
@@ -70,11 +68,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Failed to start gRPC server: {e}")
         logger.warning("⚠️ gRPC server not available - workers cannot connect")
-    
+
     logger.info("✅ Task Orchestrator Service started successfully")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("👋 Shutting down Task Orchestrator Service...")
     grpc_server = getattr(app.state, "grpc_server", None)
@@ -100,7 +98,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
-    openapi_url=None
+    openapi_url=None,
 )
 
 # CORS middleware
@@ -120,11 +118,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={
-            "detail": "Internal server error",
-            "error": str(exc),
-            "path": str(request.url)
-        }
+        content={"detail": "Internal server error", "error": str(exc), "path": str(request.url)},
     )
 
 
@@ -133,7 +127,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def health_check():
     """Health check endpoint"""
     redis_status = "healthy" if app.state.redis else "unavailable"
-    
+
     try:
         if app.state.redis:
             app.state.redis.ping()
@@ -141,25 +135,19 @@ async def health_check():
     except Exception as e:
         logger.error(f"Redis health check failed: {e}")
         redis_status = "unhealthy"
-    
+
     return {
         "status": "healthy" if redis_status == "healthy" else "degraded",
         "service": "task-orchestrator",
         "version": "1.0.0",
-        "redis": redis_status
+        "redis": redis_status,
     }
 
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     port = int(os.getenv("PORT", "8002"))
     host = os.getenv("HOST", "0.0.0.0")
-    
-    uvicorn.run(
-        "main:app",
-        host=host,
-        port=port,
-        reload=True,
-        log_level="info"
-    )
+
+    uvicorn.run("main:app", host=host, port=port, reload=True, log_level="info")

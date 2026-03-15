@@ -1,13 +1,15 @@
 """Job schemas"""
 
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
-from datetime import datetime
 import uuid
+from datetime import datetime
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel
 
 
 class JobCreateRequest(BaseModel):
     """Create job request"""
+
     group_id: uuid.UUID
     model_id: Optional[str] = None
     dataset_id: Optional[str] = None
@@ -16,6 +18,7 @@ class JobCreateRequest(BaseModel):
 
 class JobResponse(BaseModel):
     """Job response"""
+
     id: uuid.UUID
     group_id: uuid.UUID
     model_id: Optional[str]
@@ -28,13 +31,14 @@ class JobResponse(BaseModel):
     created_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
-    
+
     class Config:
         from_attributes = True
 
 
 class JobProgressResponse(BaseModel):
     """Job training progress"""
+
     job_id: uuid.UUID
     status: str
     current_epoch: int

@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-
 from app.grpc_server import ModelRegistryServicer
 from app.proto import model_registry_pb2
 
@@ -49,8 +48,11 @@ async def test_upload_checkpoint_increments_checkpoint_version():
     model = SimpleNamespace(file_hash=None, checkpoint_version=0)
     fake_session = FakeSession(model)
 
-    with patch("app.grpc_server.async_session_maker", return_value=FakeSessionContext(fake_session)), patch.object(
-        servicer, "_upload_bytes", return_value="s3://meshml-models/checkpoints/1/v1.pt"
+    with (
+        patch("app.grpc_server.async_session_maker", return_value=FakeSessionContext(fake_session)),
+        patch.object(
+            servicer, "_upload_bytes", return_value="s3://meshml-models/checkpoints/1/v1.pt"
+        ),
     ):
         response = await servicer.UploadCheckpoint(
             model_registry_pb2.CheckpointUploadRequest(

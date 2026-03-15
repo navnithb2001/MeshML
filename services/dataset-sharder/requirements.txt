@@ -12,6 +12,7 @@ redis==5.0.1
 
 # gRPC
 grpcio==1.60.1
+grpcio-tools==1.60.1
 protobuf==4.25.2
 
 # Data Processing

@@ -1,9 +1,9 @@
 """Dataset Sharder DB models."""
 
-from sqlalchemy import Column, String, DateTime
 from datetime import datetime
 
 from app.db import Base
+from sqlalchemy import Column, DateTime, String
 
 
 class DataBatch(Base):

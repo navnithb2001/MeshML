@@ -2,19 +2,19 @@
 
 import asyncio
 import gzip
+import io
 import logging
+import math
 import os
 import pickle
-import io
-import math
 from typing import Optional
 
 import grpc
+import numpy as np
 import torch
-
 from app.proto import parameter_server_pb2, parameter_server_pb2_grpc
-from app.services.parameter_storage import ParameterStorageService
 from app.services.gradient_aggregation import GradientAggregationService, GradientUpdate
+from app.services.parameter_storage import ParameterStorageService
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +40,22 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
         self.staleness_lambda = float(os.getenv("STALENESS_LAMBDA", "0.3"))
 
     def _load_tensor_dict(self, data: bytes) -> dict:
+        if not data:
+            return {}
         buffer = io.BytesIO(data)
-        return torch.load(buffer)
+        arrays = np.load(buffer, allow_pickle=False)
+        return {name: torch.from_numpy(arrays[name]) for name in arrays.files}
 
     def _dump_tensor_dict(self, data: dict) -> bytes:
         buffer = io.BytesIO()
-        torch.save(data, buffer)
-        buffer.seek(0)
-        return buffer.read()
+        arrays = {}
+        for name, value in data.items():
+            if isinstance(value, torch.Tensor):
+                arrays[name] = value.detach().cpu().numpy()
+            else:
+                arrays[name] = np.asarray(value)
+        np.savez(buffer, **arrays)
+        return buffer.getvalue()
 
     def _get_learning_rate(self, model_id: str, fallback: float) -> float:
         if not self.storage.enable_redis or not self.storage.redis_client:
@@ -98,7 +106,7 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
         key = f"optim:{model_id}"
         self.storage.redis_client.set(key, pickle.dumps(state))
 
-    async def GetWeights(self, request, context):
+    async def PullWeights(self, request, context):
         try:
             model_id = request.job_id
             params, current_version = self.storage.get_latest_parameters(model_id)
@@ -109,10 +117,10 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
                     epoch=request.epoch,
                     is_updated=False,
                     compression_type="none",
-                    uncompressed_size=0
+                    uncompressed_size=0,
                 )
 
-            payload = pickle.dumps(params)
+            payload = self._dump_tensor_dict(params)
             compressed = _compress(payload, "gzip")
             current_version = current_version or 0
             is_updated = current_version > request.current_version
@@ -123,23 +131,21 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
                 epoch=request.epoch,
                 is_updated=is_updated,
                 compression_type="gzip",
-                uncompressed_size=len(payload)
+                uncompressed_size=len(payload),
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
-    async def UpdateGradients(self, request, context):
+    async def PushGradients(self, request, context):
         try:
             if not self.storage.enable_redis or not self.storage.redis_client:
                 await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "Redis not available")
 
             payload = _decompress(request.gradients, request.compression_type)
-            gradients = pickle.loads(payload) if payload else {}
+            gradients = self._load_tensor_dict(payload) if payload else {}
 
             lock = self.storage.redis_client.lock(
-                f"lock:params:{request.job_id}",
-                timeout=10,
-                blocking_timeout=10
+                f"lock:params:{request.job_id}", timeout=10, blocking_timeout=10
             )
             if not lock.acquire(blocking=True):
                 await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, "Lock busy")
@@ -152,7 +158,7 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
                         message="No parameters available for model",
                         new_version=current_version,
                         staleness_accepted=False,
-                        staleness_threshold=0
+                        staleness_threshold=0,
                     )
 
                 staleness = max(0, current_version - request.version)
@@ -202,7 +208,7 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
                 message="accepted",
                 new_version=current_version,
                 staleness_accepted=staleness > 0,
-                staleness_threshold=10
+                staleness_threshold=10,
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
@@ -212,7 +218,7 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
             return parameter_server_pb2.OptimizerStateResponse(
                 optimizer_state=b"",
                 optimizer_type="adam",
-                version=self.storage.get_current_version(request.job_id) or 0
+                version=self.storage.get_current_version(request.job_id) or 0,
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
@@ -224,7 +230,7 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
                 current_version=current_version,
                 epoch=0,
                 total_updates=0,
-                last_update_timestamp=int(asyncio.get_event_loop().time())
+                last_update_timestamp=int(asyncio.get_event_loop().time()),
             )
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))

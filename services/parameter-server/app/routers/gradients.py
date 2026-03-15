@@ -4,20 +4,19 @@ Gradient Aggregation API Router
 RESTful endpoints for gradient submission, aggregation, and management.
 """
 
-from fastapi import APIRouter, HTTPException, Body
-from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional, List
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
+import torch
 from app.services.gradient_aggregation import (
-    GradientAggregationService,
-    GradientUpdate,
     AggregationConfig,
     AggregationStrategy,
-    ClippingStrategy
+    ClippingStrategy,
+    GradientAggregationService,
+    GradientUpdate,
 )
-import torch
-
+from fastapi import APIRouter, Body, HTTPException
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/gradients", tags=["gradients"])
 
@@ -27,8 +26,10 @@ gradient_service = GradientAggregationService()
 
 # ==================== Request/Response Models ====================
 
+
 class TensorData(BaseModel):
     """Tensor data for API transfer"""
+
     shape: List[int]
     data: List[float]  # Flattened tensor data
     dtype: str = "float32"
@@ -36,6 +37,7 @@ class TensorData(BaseModel):
 
 class GradientSubmitRequest(BaseModel):
     """Request to submit gradients"""
+
     worker_id: str = Field(..., description="Worker identifier")
     model_id: str = Field(..., description="Model identifier")
     version_id: int = Field(..., description="Parameter version used for gradient computation")
@@ -48,38 +50,32 @@ class GradientSubmitRequest(BaseModel):
 
 class GradientAggregateRequest(BaseModel):
     """Request to aggregate gradients"""
+
     model_id: str = Field(..., description="Model identifier")
     current_version: int = Field(..., description="Current parameter version")
     strategy: AggregationStrategy = Field(
-        default=AggregationStrategy.FEDAVG,
-        description="Aggregation strategy"
+        default=AggregationStrategy.FEDAVG, description="Aggregation strategy"
     )
     clipping_strategy: ClippingStrategy = Field(
-        default=ClippingStrategy.NONE,
-        description="Gradient clipping strategy"
+        default=ClippingStrategy.NONE, description="Gradient clipping strategy"
     )
     clip_value: float = Field(default=1.0, gt=0, description="Clip value threshold")
     clip_norm: float = Field(default=1.0, gt=0, description="Clip norm threshold")
     staleness_weight_decay: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="Staleness weight decay factor"
+        default=0.5, ge=0.0, le=1.0, description="Staleness weight decay factor"
     )
     max_staleness: int = Field(default=10, ge=0, description="Maximum staleness allowed")
     normalize_gradients: bool = Field(default=False, description="Normalize gradients")
     momentum_factor: float = Field(default=0.9, ge=0.0, le=1.0, description="Momentum factor")
     adaptive_threshold: float = Field(
-        default=0.1,
-        ge=0.0,
-        le=1.0,
-        description="Adaptive quality threshold"
+        default=0.1, ge=0.0, le=1.0, description="Adaptive quality threshold"
     )
     clear_buffer: bool = Field(default=True, description="Clear buffer after aggregation")
 
 
 class GradientUpdateResponse(BaseModel):
     """Response for gradient update info"""
+
     worker_id: str
     model_id: str
     version_id: int
@@ -92,6 +88,7 @@ class GradientUpdateResponse(BaseModel):
 
 class AggregatedGradientResponse(BaseModel):
     """Response for aggregated gradients"""
+
     model_id: str
     target_version_id: int
     num_workers: int
@@ -106,6 +103,7 @@ class AggregatedGradientResponse(BaseModel):
 
 class PendingGradientsResponse(BaseModel):
     """Response for pending gradients"""
+
     model_id: str
     pending_count: int
     gradients: List[GradientUpdateResponse]
@@ -113,6 +111,7 @@ class PendingGradientsResponse(BaseModel):
 
 class StatisticsResponse(BaseModel):
     """Response for aggregation statistics"""
+
     total_aggregations: int
     strategy_counts: Dict[str, int]
     pending_gradients: int
@@ -121,6 +120,7 @@ class StatisticsResponse(BaseModel):
 
 
 # ==================== Helper Functions ====================
+
 
 def tensor_data_to_torch(tensor_data: TensorData) -> torch.Tensor:
     """Convert TensorData to PyTorch tensor"""
@@ -134,19 +134,18 @@ def torch_to_tensor_data(tensor: torch.Tensor) -> TensorData:
     return TensorData(
         shape=list(tensor.shape),
         data=tensor.flatten().tolist(),
-        dtype=str(tensor.dtype).replace("torch.", "")
+        dtype=str(tensor.dtype).replace("torch.", ""),
     )
 
 
 # ==================== Endpoints ====================
 
+
 @router.post("/submit", response_model=Dict[str, Any])
-async def submit_gradients(
-    request: GradientSubmitRequest
-) -> Dict[str, Any]:
+async def submit_gradients(request: GradientSubmitRequest) -> Dict[str, Any]:
     """
     Submit gradient update from a worker.
-    
+
     The worker sends gradients computed from a specific parameter version.
     These gradients are buffered for later aggregation.
     """
@@ -156,7 +155,7 @@ async def submit_gradients(
             name: tensor_data_to_torch(tensor_data)
             for name, tensor_data in request.gradients.items()
         }
-        
+
         # Create gradient update
         gradient_update = GradientUpdate(
             worker_id=request.worker_id,
@@ -166,12 +165,12 @@ async def submit_gradients(
             num_samples=request.num_samples,
             loss=request.loss,
             metrics=request.metrics,
-            metadata=request.metadata
+            metadata=request.metadata,
         )
-        
+
         # Submit to service
         gradient_service.submit_gradient(gradient_update)
-        
+
         return {
             "status": "success",
             "message": f"Gradient accepted from {request.worker_id}",
@@ -179,20 +178,18 @@ async def submit_gradients(
             "model_id": request.model_id,
             "version_id": request.version_id,
             "num_samples": request.num_samples,
-            "parameter_count": len(gradients)
+            "parameter_count": len(gradients),
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/aggregate", response_model=AggregatedGradientResponse)
-async def aggregate_gradients(
-    request: GradientAggregateRequest
-) -> AggregatedGradientResponse:
+async def aggregate_gradients(request: GradientAggregateRequest) -> AggregatedGradientResponse:
     """
     Aggregate pending gradients for a model.
-    
+
     Combines gradients from multiple workers using the specified strategy,
     applies staleness weighting and gradient clipping/normalization.
     """
@@ -207,23 +204,22 @@ async def aggregate_gradients(
             max_staleness=request.max_staleness,
             normalize_gradients=request.normalize_gradients,
             momentum_factor=request.momentum_factor,
-            adaptive_threshold=request.adaptive_threshold
+            adaptive_threshold=request.adaptive_threshold,
         )
-        
+
         # Aggregate
         result = gradient_service.aggregate_gradients(
             model_id=request.model_id,
             current_version=request.current_version,
             config=config,
-            clear_buffer=request.clear_buffer
+            clear_buffer=request.clear_buffer,
         )
-        
+
         if result is None:
             raise HTTPException(
-                status_code=404,
-                detail=f"No gradients to aggregate for {request.model_id}"
+                status_code=404, detail=f"No gradients to aggregate for {request.model_id}"
             )
-        
+
         return AggregatedGradientResponse(
             model_id=result.model_id,
             target_version_id=result.target_version_id,
@@ -234,9 +230,9 @@ async def aggregate_gradients(
             staleness_weights=result.staleness_weights,
             created_at=result.created_at,
             parameter_count=len(result.aggregated_gradients),
-            metadata=result.metadata
+            metadata=result.metadata,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -244,17 +240,15 @@ async def aggregate_gradients(
 
 
 @router.get("/pending/{model_id}", response_model=PendingGradientsResponse)
-async def get_pending_gradients(
-    model_id: str
-) -> PendingGradientsResponse:
+async def get_pending_gradients(model_id: str) -> PendingGradientsResponse:
     """
     Get pending gradient updates for a model.
-    
+
     Returns gradients that have been submitted but not yet aggregated.
     """
     try:
         pending = gradient_service.get_pending_gradients(model_id)
-        
+
         gradient_responses = [
             GradientUpdateResponse(
                 worker_id=update.worker_id,
@@ -264,62 +258,54 @@ async def get_pending_gradients(
                 loss=update.loss,
                 metrics=update.metrics,
                 received_at=update.received_at,
-                parameter_count=len(update.gradients)
+                parameter_count=len(update.gradients),
             )
             for update in pending
         ]
-        
+
         return PendingGradientsResponse(
-            model_id=model_id,
-            pending_count=len(pending),
-            gradients=gradient_responses
+            model_id=model_id, pending_count=len(pending), gradients=gradient_responses
         )
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/pending/{model_id}", response_model=Dict[str, Any])
-async def clear_pending_gradients(
-    model_id: str
-) -> Dict[str, Any]:
+async def clear_pending_gradients(model_id: str) -> Dict[str, Any]:
     """
     Clear pending gradients for a model.
-    
+
     Removes all buffered gradients without aggregating them.
     """
     try:
         count = gradient_service.clear_buffer(model_id)
-        
+
         return {
             "status": "success",
             "message": f"Cleared {count} pending gradients",
             "model_id": model_id,
-            "cleared_count": count
+            "cleared_count": count,
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/history", response_model=List[AggregatedGradientResponse])
 async def get_aggregation_history(
-    model_id: Optional[str] = None,
-    limit: Optional[int] = None
+    model_id: Optional[str] = None, limit: Optional[int] = None
 ) -> List[AggregatedGradientResponse]:
     """
     Get aggregation history.
-    
+
     Query parameters:
     - model_id: Filter by model (optional)
     - limit: Maximum number of records (optional)
     """
     try:
-        history = gradient_service.get_aggregation_history(
-            model_id=model_id,
-            limit=limit
-        )
-        
+        history = gradient_service.get_aggregation_history(model_id=model_id, limit=limit)
+
         return [
             AggregatedGradientResponse(
                 model_id=agg.model_id,
@@ -331,11 +317,11 @@ async def get_aggregation_history(
                 staleness_weights=agg.staleness_weights,
                 created_at=agg.created_at,
                 parameter_count=len(agg.aggregated_gradients),
-                metadata=agg.metadata
+                metadata=agg.metadata,
             )
             for agg in history
         ]
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -347,7 +333,7 @@ async def get_strategies() -> Dict[str, List[str]]:
     """
     return {
         "aggregation_strategies": [s.value for s in AggregationStrategy],
-        "clipping_strategies": [s.value for s in ClippingStrategy]
+        "clipping_strategies": [s.value for s in ClippingStrategy],
     }
 
 
@@ -359,7 +345,7 @@ async def get_statistics() -> StatisticsResponse:
     try:
         stats = gradient_service.get_statistics()
         return StatisticsResponse(**stats)
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -370,10 +356,10 @@ async def health_check() -> Dict[str, Any]:
     Health check endpoint for gradient aggregation service.
     """
     stats = gradient_service.get_statistics()
-    
+
     return {
         "status": "healthy",
         "service": "gradient_aggregation",
         "total_aggregations": stats["total_aggregations"],
-        "pending_gradients": stats["pending_gradients"]
+        "pending_gradients": stats["pending_gradients"],
     }

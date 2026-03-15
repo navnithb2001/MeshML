@@ -3,7 +3,7 @@ syntax = "proto3";
 package meshml.model_registry;
 
 service ModelRegistry {
-  rpc RegisterModel(RegisterModelRequest) returns (RegisterModelResponse);
+  rpc RegisterNewModel(RegisterModelRequest) returns (RegisterModelResponse);
   rpc FinalizeModelUpload(FinalizeModelUploadRequest) returns (FinalizeModelUploadResponse);
   rpc GetModelArtifact(GetModelArtifactRequest) returns (GetModelArtifactResponse);
   rpc GetFinalModelDownloadUrl(GetFinalModelDownloadUrlRequest) returns (GetFinalModelDownloadUrlResponse);

@@ -1,18 +1,18 @@
 """Worker database model"""
 
-from sqlalchemy import Column, String, DateTime, JSON
-from sqlalchemy.dialects.postgresql import UUID
-from datetime import datetime
 import uuid
+from datetime import datetime
 
 from app.utils.database import Base
+from sqlalchemy import JSON, Column, DateTime, String
+from sqlalchemy.dialects.postgresql import UUID
 
 
 class Worker(Base):
     """Worker registration and status model"""
-    
+
     __tablename__ = "workers"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     worker_id = Column(String(255), unique=True, nullable=False, index=True)
     user_email = Column(String(255), nullable=True, index=True)
@@ -21,6 +21,6 @@ class Worker(Base):
     last_heartbeat = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    
+
     def __repr__(self):
         return f"<Worker {self.worker_id} - {self.status}>"

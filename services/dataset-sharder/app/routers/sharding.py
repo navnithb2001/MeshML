@@ -4,15 +4,16 @@ Provides HTTP endpoints to create shards and batches from a dataset path.
 """
 
 import logging
-from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
 
 from app.config import settings
-from app.services.dataset_loader import create_loader, DatasetFormat
-from app.services.dataset_sharder import DatasetSharder, ShardingConfig, ShardingStrategy
-from app.services.batch_storage import BatchManager
 from app.routers.distribution import get_batch_manager
+from app.services.batch_storage import BatchManager
+from app.services.batch_persistence import persist_batches
+from app.services.dataset_loader import DatasetFormat, create_loader
+from app.services.dataset_sharder import DatasetSharder, ShardingConfig, ShardingStrategy
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -21,30 +22,28 @@ router = APIRouter(prefix="/shard", tags=["sharding"])
 
 class ShardDatasetRequest(BaseModel):
     """Request to shard a dataset and create batches."""
+
     dataset_id: str = Field(..., description="Dataset ID")
     job_id: Optional[str] = Field(default=None, description="Job ID for batch tracking")
     model_id: Optional[str] = Field(default=None, description="Model ID for batch tracking")
     dataset_path: str = Field(..., description="Dataset path (local or gs://)")
     format: Optional[str] = Field(
-        default=None,
-        description="Dataset format: imagefolder, coco, csv (auto-detect if omitted)"
+        default=None, description="Dataset format: imagefolder, coco, csv (auto-detect if omitted)"
     )
     num_shards: int = Field(10, gt=0, le=1000, description="Number of shards to create")
     strategy: str = Field(
         default="stratified",
-        description="Sharding strategy: random, stratified, non_iid, sequential"
+        description="Sharding strategy: random, stratified, non_iid, sequential",
     )
     batch_size: Optional[int] = Field(
-        default=None,
-        description="Batch size (defaults to service setting)"
+        default=None, description="Batch size (defaults to service setting)"
     )
     seed: int = Field(default=42, description="Random seed for sharding")
 
 
 @router.post("", response_model=dict)
 async def shard_dataset(
-    request: ShardDatasetRequest,
-    batch_manager: BatchManager = Depends(get_batch_manager)
+    request: ShardDatasetRequest, batch_manager: BatchManager = Depends(get_batch_manager)
 ):
     """
     Create dataset shards and store batches.
@@ -59,8 +58,7 @@ async def shard_dataset(
                 dataset_format = DatasetFormat(request.format)
             except ValueError:
                 raise HTTPException(
-                    status_code=400,
-                    detail=f"Unsupported dataset format: {request.format}"
+                    status_code=400, detail=f"Unsupported dataset format: {request.format}"
                 )
 
         # Create loader and read metadata
@@ -72,8 +70,7 @@ async def shard_dataset(
             strategy = ShardingStrategy(request.strategy)
         except ValueError:
             raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported sharding strategy: {request.strategy}"
+                status_code=400, detail=f"Unsupported sharding strategy: {request.strategy}"
             )
 
         # Build sharding config
@@ -82,7 +79,7 @@ async def shard_dataset(
             num_shards=request.num_shards,
             strategy=strategy,
             batch_size=batch_size,
-            seed=request.seed
+            seed=request.seed,
         )
 
         # Create shards
@@ -95,25 +92,21 @@ async def shard_dataset(
         all_batches: List[Any] = []
         for shard in shards:
             batches = batch_manager.create_batches_from_shard(
-                shard=shard,
-                loader=loader,
-                batch_size=batch_size
+                shard=shard, loader=loader, batch_size=batch_size
             )
             total_batches += len(batches)
             all_batches.extend(batches)
-            shard_summaries.append({
-                "shard_id": shard.shard_id,
-                "num_samples": shard.num_samples,
-                "num_batches": len(batches),
-                "class_distribution": shard.class_distribution
-            })
+            shard_summaries.append(
+                {
+                    "shard_id": shard.shard_id,
+                    "num_samples": shard.num_samples,
+                    "num_batches": len(batches),
+                    "class_distribution": shard.class_distribution,
+                }
+            )
 
         if request.job_id and request.model_id:
-            await _persist_batches(
-                job_id=request.job_id,
-                model_id=request.model_id,
-                batches=all_batches
-            )
+            await persist_batches(job_id=request.job_id, model_id=request.model_id, batches=all_batches)
 
         return {
             "success": True,
@@ -126,7 +119,7 @@ async def shard_dataset(
             "batch_size": batch_size,
             "total_batches": total_batches,
             "strategy": strategy.value,
-            "shards": shard_summaries
+            "shards": shard_summaries,
         }
 
     except HTTPException:
@@ -134,19 +127,3 @@ async def shard_dataset(
     except Exception as e:
         logger.error(f"Sharding failed for dataset {request.dataset_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-async def _persist_batches(job_id: str, model_id: str, batches: List[Any]) -> None:
-    from app.db import AsyncSessionLocal
-    from app.models import DataBatch
-    async with AsyncSessionLocal() as session:
-        for batch in batches:
-            record = DataBatch(
-                id=batch.batch_id,
-                job_id=job_id,
-                model_id=model_id,
-                gcs_path=batch.storage_path,
-                status="AVAILABLE"
-            )
-            session.add(record)
-        await session.commit()

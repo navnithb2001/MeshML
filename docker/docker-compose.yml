@@ -98,6 +98,9 @@ services:
       DATASET_SHARDER_GRPC_URL: dataset-sharder:50053
       MODEL_REGISTRY_GRPC_URL: model-registry:50052
       TASK_ORCHESTRATOR_GRPC_URL: task-orchestrator:50051
+      STORAGE_EMULATOR_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: meshml
+      AWS_SECRET_ACCESS_KEY: meshml_minio_password
     depends_on:
       postgres:
         condition: service_healthy
@@ -128,6 +131,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
       GCS_BUCKET_NAME: meshml-models-local
       STORAGE_EMULATOR_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: meshml
+      AWS_SECRET_ACCESS_KEY: meshml_minio_password
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,6 +164,8 @@ services:
       USE_GCS: "true"
       GCS_BUCKET_NAME: meshml-datasets-local
       STORAGE_EMULATOR_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: meshml
+      AWS_SECRET_ACCESS_KEY: meshml_minio_password
     depends_on:
       postgres:
         condition: service_healthy

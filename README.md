@@ -110,7 +110,7 @@ meshml-worker run
 
 - `services/` – microservices
 - `workers/python-worker/` – worker agent
-- `proto/` – source .proto definitions
+- `services/*/proto/` – per-service `.proto` definitions used for local stub generation
 - `docker/` – local compose
 - `k8s/` – Kubernetes manifests
 - `scripts/init-db.sql` – database bootstrap

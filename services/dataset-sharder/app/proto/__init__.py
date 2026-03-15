@@ -1,7 +1,29 @@
-"""Generated protocol buffer files for Dataset Sharder gRPC."""
+"""Generated protocol buffer modules for this component."""
 
-from . import dataset_sharder_pb2
-from . import dataset_sharder_pb2_grpc
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+_REQUIRED = [
+    "dataset_sharder_pb2.py",
+    "dataset_sharder_pb2_grpc.py",
+]
+
+
+def _ensure_generated() -> None:
+    proto_dir = Path(__file__).resolve().parent
+    if all((proto_dir / name).exists() for name in _REQUIRED):
+        return
+
+    generator = Path(__file__).resolve().parents[2] / "scripts" / "generate_protos.py"
+    subprocess.run([sys.executable, str(generator)], check=True)
+
+
+_ensure_generated()
+
+from . import dataset_sharder_pb2, dataset_sharder_pb2_grpc
 
 __all__ = [
     "dataset_sharder_pb2",

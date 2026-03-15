@@ -1,11 +1,10 @@
 """Dataset Sharder gRPC client for Task Orchestrator integration."""
 
-import os
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 import grpc
-
 from app.proto import dataset_sharder_pb2, dataset_sharder_pb2_grpc
 
 logger = logging.getLogger(__name__)
@@ -16,8 +15,7 @@ class DatasetSharderClient:
 
     def __init__(self, grpc_url: Optional[str] = None):
         self.grpc_url = grpc_url or os.getenv(
-            "DATASET_SHARDER_GRPC_URL",
-            "dataset-sharder-service:50053"
+            "DATASET_SHARDER_GRPC_URL", "dataset-sharder-service:50053"
         )
 
     async def shard_dataset(
@@ -30,7 +28,7 @@ class DatasetSharderClient:
         num_shards: int,
         strategy: str,
         batch_size: int,
-        seed: int
+        seed: int,
     ) -> Dict[str, Any]:
         """Trigger dataset sharding in Dataset Sharder."""
         payload = {
@@ -40,7 +38,7 @@ class DatasetSharderClient:
             "num_shards": num_shards,
             "strategy": strategy,
             "batch_size": batch_size,
-            "seed": seed
+            "seed": seed,
         }
 
         async with grpc.aio.insecure_channel(self.grpc_url) as channel:
@@ -55,7 +53,7 @@ class DatasetSharderClient:
                     num_shards=num_shards,
                     strategy=strategy,
                     batch_size=batch_size,
-                    seed=seed
+                    seed=seed,
                 )
             )
             if not response.success:
@@ -64,20 +62,17 @@ class DatasetSharderClient:
                 "success": response.success,
                 "dataset_id": response.dataset_id,
                 "num_shards": response.num_shards,
-                "total_batches": response.total_batches
+                "total_batches": response.total_batches,
             }
 
     async def assign_batches(
         self,
         worker_ids: List[str],
         shard_id: Optional[int] = None,
-        strategy: str = "shard_per_worker"
+        strategy: str = "shard_per_worker",
     ) -> Dict[str, Any]:
         """Assign batches to workers in Dataset Sharder."""
-        payload: Dict[str, Any] = {
-            "worker_ids": worker_ids,
-            "strategy": strategy
-        }
+        payload: Dict[str, Any] = {"worker_ids": worker_ids, "strategy": strategy}
         if shard_id is not None:
             payload["shard_id"] = shard_id
 
@@ -85,9 +80,7 @@ class DatasetSharderClient:
             stub = dataset_sharder_pb2_grpc.DatasetSharderStub(channel)
             response = await stub.AssignBatches(
                 dataset_sharder_pb2.AssignBatchesRequest(
-                    worker_ids=worker_ids,
-                    shard_id=shard_id or 0,
-                    strategy=strategy
+                    worker_ids=worker_ids, shard_id=shard_id or 0, strategy=strategy
                 )
             )
             if not response.success:
@@ -101,7 +94,7 @@ class DatasetSharderClient:
                     "assigned_batches": list(assignment.assigned_batches),
                     "total_samples": assignment.total_samples,
                     "progress": assignment.progress,
-                    "is_complete": assignment.is_complete
+                    "is_complete": assignment.is_complete,
                 }
             return {"assignments": assignments}
 
@@ -116,5 +109,5 @@ class DatasetSharderClient:
             return {
                 "download_url": response.download_url,
                 "storage_path": response.storage_path,
-                "expires_in_seconds": response.expires_in_seconds
+                "expires_in_seconds": response.expires_in_seconds,
             }
