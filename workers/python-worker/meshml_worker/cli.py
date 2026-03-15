@@ -21,7 +21,7 @@ from meshml_worker.main import MeshMLWorker
 
 
 @click.group()
-@click.version_option(version="0.2.7")
+@click.version_option(version="0.2.8")
 def main() -> None:
     """MeshML Worker - Federated Learning Worker"""
     pass
