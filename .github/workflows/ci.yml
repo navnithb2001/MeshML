@@ -78,11 +78,11 @@ jobs:
       - name: Run pytest
         working-directory: ${{ matrix.component }}
         env:
-          DATABASE_URL: sqlite+aiosqlite:///:memory:
-          REDIS_HOST: localhost
-          REDIS_URL: redis://localhost:6379/0
-          GRPC_TARGET: localhost:50051
-          DEBUG: release
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+          REDIS_HOST: "localhost"
+          REDIS_URL: "redis://localhost:6379/0"
+          GRPC_TARGET: "localhost:50051"
+          DEBUG: "release"
         run: pytest -q
 
   docker-build-verify:
@@ -157,4 +157,3 @@ jobs:
 
           print("Proto consistency check passed.")
           PY
-
