@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ParameterServerConfig(BaseModel):
@@ -126,6 +126,8 @@ class LoggingConfig(BaseModel):
 
 class WorkerConfig(BaseModel):
     """Complete worker configuration"""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     api_base_url: str = Field(default="http://localhost:8000", description="API Gateway URL")
     worker: WorkerIdentityConfig = Field(default_factory=WorkerIdentityConfig)

@@ -5,7 +5,8 @@ import os
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
 
-DATABASE_URL = os.getenv("DATASET_SHARDER_DATABASE_URL")
+# Prefer service-specific URL, then shared DATABASE_URL used by docker-compose.
+DATABASE_URL = os.getenv("DATASET_SHARDER_DATABASE_URL") or os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     db_user = os.getenv("POSTGRES_USER", "meshml_user")
     db_password = os.getenv("POSTGRES_PASSWORD", "CHANGE_ME_IN_PRODUCTION")

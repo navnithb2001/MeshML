@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "meshml-worker"
-version = "0.2.8"
+version = "0.3.2"
 description = "MeshML Python Worker - Contribute your device to distributed machine learning training"
 authors = ["MeshML Team <meshml@example.com>"]
 license = "MIT"
@@ -22,6 +22,10 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
 ]
 packages = [{include = "meshml_worker"}]
+include = [
+    { path = "scripts/generate_protos.py", format = ["sdist", "wheel"] },
+    { path = "proto/*.proto", format = ["sdist", "wheel"] },
+]
 
 [tool.poetry.dependencies]
 python = "^3.9"

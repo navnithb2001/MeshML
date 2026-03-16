@@ -15,10 +15,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import boto3
 import numpy as np
 from app.core.storage import get_dataset_storage
 from app.services.dataset_loader import DataSample
 from app.services.dataset_sharder import ShardMetadata
+from botocore.config import Config
+from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 
@@ -273,8 +276,28 @@ class GCSBatchStorage(BatchStorage):
         self.storage_client = get_dataset_storage()
         self.bucket_name = bucket_name
         self.base_prefix = base_prefix
+        self._s3 = self._emulator_s3_client()
 
         logger.info(f"Initialized GCS batch storage: gs://{bucket_name}/{base_prefix}")
+
+    def _emulator_s3_client(self):
+        endpoint = os.getenv("STORAGE_EMULATOR_URL")
+        if not endpoint:
+            return None
+        return boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=(
+                os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("MINIO_ROOT_USER") or "meshml"
+            ),
+            aws_secret_access_key=(
+                os.getenv("AWS_SECRET_ACCESS_KEY")
+                or os.getenv("MINIO_ROOT_PASSWORD")
+                or "meshml_minio_password"
+            ),
+            region_name="us-east-1",
+            config=Config(signature_version="s3v4"),
+        )
 
     def save_batch(self, samples: List[DataSample], metadata: BatchMetadata) -> str:
         """Save batch to GCS."""
@@ -286,24 +309,35 @@ class GCSBatchStorage(BatchStorage):
         # Calculate checksum
         checksum = hashlib.sha256(batch_bytes).hexdigest()
 
-        # Upload to GCS
         blob_name = f"{self.base_prefix}/batches/{metadata.batch_id}.pkl"
-        bucket = self.storage_client.bucket
-        blob = bucket.blob(blob_name)
+        metadata_blob_name = f"{self.base_prefix}/metadata/{metadata.batch_id}.json"
 
-        blob.upload_from_string(batch_bytes, content_type="application/octet-stream")
-
-        # Update metadata
+        # Update metadata before writing metadata object.
         metadata.size_bytes = len(batch_bytes)
         metadata.checksum = checksum
         metadata.storage_path = f"gs://{self.bucket_name}/{blob_name}"
 
-        # Save metadata
-        metadata_blob_name = f"{self.base_prefix}/metadata/{metadata.batch_id}.json"
-        metadata_blob = bucket.blob(metadata_blob_name)
-        metadata_blob.upload_from_string(
-            json.dumps(metadata.to_dict(), indent=2), content_type="application/json"
-        )
+        if self._s3:
+            self._s3.put_object(
+                Bucket=self.bucket_name,
+                Key=blob_name,
+                Body=batch_bytes,
+                ContentType="application/octet-stream",
+            )
+            self._s3.put_object(
+                Bucket=self.bucket_name,
+                Key=metadata_blob_name,
+                Body=json.dumps(metadata.to_dict(), indent=2).encode("utf-8"),
+                ContentType="application/json",
+            )
+        else:
+            bucket = self.storage_client.bucket
+            blob = bucket.blob(blob_name)
+            blob.upload_from_string(batch_bytes, content_type="application/octet-stream")
+            metadata_blob = bucket.blob(metadata_blob_name)
+            metadata_blob.upload_from_string(
+                json.dumps(metadata.to_dict(), indent=2), content_type="application/json"
+            )
 
         logger.info(
             f"Saved batch to GCS {metadata.batch_id}: "
@@ -315,26 +349,33 @@ class GCSBatchStorage(BatchStorage):
 
     def load_batch(self, batch_id: str) -> tuple[List[DataSample], BatchMetadata]:
         """Load batch from GCS."""
-        bucket = self.storage_client.bucket
-
-        # Load metadata
         metadata_blob_name = f"{self.base_prefix}/metadata/{batch_id}.json"
-        metadata_blob = bucket.blob(metadata_blob_name)
-
-        if not metadata_blob.exists():
-            raise FileNotFoundError(f"Batch metadata not found in GCS: {batch_id}")
-
-        metadata_json = metadata_blob.download_as_text()
-        metadata = BatchMetadata.from_dict(json.loads(metadata_json))
-
-        # Load batch data
         batch_blob_name = f"{self.base_prefix}/batches/{batch_id}.pkl"
-        batch_blob = bucket.blob(batch_blob_name)
+        if self._s3:
+            try:
+                self._s3.head_object(Bucket=self.bucket_name, Key=metadata_blob_name)
+                metadata_obj = self._s3.get_object(Bucket=self.bucket_name, Key=metadata_blob_name)
+                metadata_json = metadata_obj["Body"].read().decode("utf-8")
+            except ClientError:
+                raise FileNotFoundError(f"Batch metadata not found in GCS: {batch_id}")
+            try:
+                self._s3.head_object(Bucket=self.bucket_name, Key=batch_blob_name)
+                batch_obj = self._s3.get_object(Bucket=self.bucket_name, Key=batch_blob_name)
+                batch_bytes = batch_obj["Body"].read()
+            except ClientError:
+                raise FileNotFoundError(f"Batch data not found in GCS: {batch_id}")
+        else:
+            bucket = self.storage_client.bucket
+            metadata_blob = bucket.blob(metadata_blob_name)
+            if not metadata_blob.exists():
+                raise FileNotFoundError(f"Batch metadata not found in GCS: {batch_id}")
+            metadata_json = metadata_blob.download_as_text()
+            batch_blob = bucket.blob(batch_blob_name)
+            if not batch_blob.exists():
+                raise FileNotFoundError(f"Batch data not found in GCS: {batch_id}")
+            batch_bytes = batch_blob.download_as_bytes()
 
-        if not batch_blob.exists():
-            raise FileNotFoundError(f"Batch data not found in GCS: {batch_id}")
-
-        batch_bytes = batch_blob.download_as_bytes()
+        metadata = BatchMetadata.from_dict(json.loads(metadata_json))
 
         # Verify checksum
         current_checksum = hashlib.sha256(batch_bytes).hexdigest()
@@ -353,20 +394,27 @@ class GCSBatchStorage(BatchStorage):
 
     def delete_batch(self, batch_id: str) -> bool:
         """Delete batch from GCS."""
-        bucket = self.storage_client.bucket
-
-        batch_blob = bucket.blob(f"{self.base_prefix}/batches/{batch_id}.pkl")
-        metadata_blob = bucket.blob(f"{self.base_prefix}/metadata/{batch_id}.json")
-
         deleted = False
-
-        if batch_blob.exists():
-            batch_blob.delete()
-            deleted = True
-
-        if metadata_blob.exists():
-            metadata_blob.delete()
-            deleted = True
+        batch_blob_name = f"{self.base_prefix}/batches/{batch_id}.pkl"
+        metadata_blob_name = f"{self.base_prefix}/metadata/{batch_id}.json"
+        if self._s3:
+            for key in (batch_blob_name, metadata_blob_name):
+                try:
+                    self._s3.head_object(Bucket=self.bucket_name, Key=key)
+                    self._s3.delete_object(Bucket=self.bucket_name, Key=key)
+                    deleted = True
+                except ClientError:
+                    continue
+        else:
+            bucket = self.storage_client.bucket
+            batch_blob = bucket.blob(batch_blob_name)
+            metadata_blob = bucket.blob(metadata_blob_name)
+            if batch_blob.exists():
+                batch_blob.delete()
+                deleted = True
+            if metadata_blob.exists():
+                metadata_blob.delete()
+                deleted = True
 
         if deleted:
             logger.info(f"Deleted batch from GCS {batch_id}")
@@ -375,29 +423,40 @@ class GCSBatchStorage(BatchStorage):
 
     def list_batches(self, shard_id: Optional[int] = None) -> List[BatchMetadata]:
         """List batches from GCS."""
-        bucket = self.storage_client.bucket
         metadata_prefix = f"{self.base_prefix}/metadata/"
 
-        blobs = bucket.list_blobs(prefix=metadata_prefix)
-
         batches = []
-        for blob in blobs:
-            if not blob.name.endswith(".json"):
-                continue
-
-            try:
-                metadata_json = blob.download_as_text()
-                metadata = BatchMetadata.from_dict(json.loads(metadata_json))
-
-                # Filter by shard_id if provided
-                if shard_id is not None and metadata.shard_id != shard_id:
+        if self._s3:
+            paginator = self._s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.bucket_name, Prefix=metadata_prefix):
+                for item in page.get("Contents", []):
+                    key = item["Key"]
+                    if not key.endswith(".json"):
+                        continue
+                    try:
+                        data = self._s3.get_object(Bucket=self.bucket_name, Key=key)["Body"].read()
+                        metadata = BatchMetadata.from_dict(json.loads(data.decode("utf-8")))
+                        if shard_id is not None and metadata.shard_id != shard_id:
+                            continue
+                        batches.append(metadata)
+                    except Exception as e:
+                        logger.warning(f"Failed to load metadata {key}: {e}")
+                        continue
+        else:
+            bucket = self.storage_client.bucket
+            blobs = bucket.list_blobs(prefix=metadata_prefix)
+            for blob in blobs:
+                if not blob.name.endswith(".json"):
                     continue
-
-                batches.append(metadata)
-
-            except Exception as e:
-                logger.warning(f"Failed to load metadata {blob.name}: {e}")
-                continue
+                try:
+                    metadata_json = blob.download_as_text()
+                    metadata = BatchMetadata.from_dict(json.loads(metadata_json))
+                    if shard_id is not None and metadata.shard_id != shard_id:
+                        continue
+                    batches.append(metadata)
+                except Exception as e:
+                    logger.warning(f"Failed to load metadata {blob.name}: {e}")
+                    continue
 
         return sorted(batches, key=lambda b: (b.shard_id, b.batch_index))
 

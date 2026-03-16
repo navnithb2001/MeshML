@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import signal
 import sys
 from pathlib import Path
@@ -123,6 +124,7 @@ class MeshMLWorker:
         self._shutdown_event: Optional[asyncio.Event] = None
         self._pause_event: Optional[asyncio.Event] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._shutdown_signal_count = 0
 
         # Setup logging
         self._setup_logging()
@@ -145,6 +147,12 @@ class MeshMLWorker:
         """Setup signal handlers for graceful shutdown"""
 
         def signal_handler(signum: int, frame: Any) -> None:
+            self._shutdown_signal_count += 1
+            if self._shutdown_signal_count > 1:
+                logger.warning(
+                    "Received signal %s again during shutdown; forcing immediate exit.", signum
+                )
+                os._exit(130)
             logger.info(f"Received signal {signum}, shutting down gracefully...")
             self.running = False
             if self._loop and self._shutdown_event:
@@ -221,10 +229,31 @@ class MeshMLWorker:
                     dest_path.write_bytes(resp.content)
                 await cache.record_download(cache_key, url, dest_path)
 
-            monitor = ResourceMonitor(self._pause_event)
-            monitor_task = asyncio.create_task(
-                monitor.run(lambda: bool(self.running and self._pause_event))
+            disable_throttle = os.getenv("MESHML_DISABLE_RESOURCE_THROTTLE", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            auto_exit_on_job_complete = (
+                os.getenv("MESHML_EXIT_ON_JOB_COMPLETE", "").strip().lower()
+                in {"1", "true", "yes", "on"}
             )
+            cpu_threshold = float(os.getenv("MESHML_CPU_PAUSE_THRESHOLD", "80"))
+            ram_threshold = float(os.getenv("MESHML_RAM_PAUSE_THRESHOLD", "80"))
+
+            monitor_task = None
+            if disable_throttle:
+                logger.info("Resource throttling disabled for this run.")
+            else:
+                monitor = ResourceMonitor(
+                    self._pause_event,
+                    cpu_threshold=cpu_threshold,
+                    memory_threshold=ram_threshold,
+                )
+                monitor_task = asyncio.create_task(
+                    monitor.run(lambda: bool(self.running and self._pause_event))
+                )
             job_progress: Dict[str, Dict[str, int]] = {}
 
             async def _handle_assignment(assignment, hyperparameters):
@@ -233,9 +262,16 @@ class MeshMLWorker:
                     model_id = hyperparameters.get("model_id") or "unknown"
                     model_sha = hyperparameters.get("model_sha256")
                     total_batches = int(hyperparameters.get("total_batches") or 0)
+                    logger.info(
+                        "Received assignment: job_id=%s batch_id=%s model_id=%s",
+                        job_id,
+                        assignment.batch_id,
+                        model_id,
+                    )
 
                     model_path = self.config.storage.models_dir / f"{model_id}.py"
                     if assignment.model_url:
+                        logger.info("Downloading model artifact for job %s", job_id)
                         await _download(
                             assignment.model_url, model_path, f"model:{model_id}", model_sha
                         )
@@ -244,6 +280,7 @@ class MeshMLWorker:
                     data_dir.mkdir(parents=True, exist_ok=True)
                     data_path = data_dir / "batch.data"
                     if assignment.data_url:
+                        logger.info("Downloading data batch %s for job %s", assignment.batch_id, job_id)
                         await _download(
                             assignment.data_url, data_path, f"batch:{assignment.batch_id}", None
                         )
@@ -281,23 +318,84 @@ class MeshMLWorker:
                         )
                         progress["completed"] += 1
                         if progress["completed"] >= progress["total"]:
-                            logger.info(f"Job {job_id} completed all batches; closing stream")
-                            if self._shutdown_event:
-                                self._shutdown_event.set()
+                            logger.info(f"Job {job_id} completed all batches")
+                            if auto_exit_on_job_complete:
+                                logger.info(
+                                    "Auto-exit enabled; closing stream after job completion."
+                                )
+                                if self._shutdown_event:
+                                    self._shutdown_event.set()
 
                     return {"success": True}
                 except Exception as e:
+                    logger.exception(
+                        "Assignment execution failed: job_id=%s batch_id=%s error=%s",
+                        getattr(assignment, "job_id", ""),
+                        getattr(assignment, "batch_id", ""),
+                        e,
+                    )
                     return {"success": False, "error_message": str(e)}
 
             logger.info("\n[2/5] Waiting for streamed assignments...")
-            await orchestrator.run_assignment_stream(_handle_assignment, self._shutdown_event)
-            monitor_task.cancel()
-            logger.info("Training completed successfully!")
-            logger.info("=" * 60)
+            while self.running and self._shutdown_event and not self._shutdown_event.is_set():
+                try:
+                    stream_coro = orchestrator.run_assignment_stream(
+                        _handle_assignment,
+                        self._shutdown_event,
+                        preferred_job_ids=preferred_job_ids,
+                    )
+                except TypeError:
+                    # Backward-compatible path for test doubles/older clients
+                    # that do not accept preferred_job_ids.
+                    stream_coro = orchestrator.run_assignment_stream(
+                        _handle_assignment,
+                        self._shutdown_event,
+                    )
+
+                stream_task = asyncio.create_task(stream_coro)
+                shutdown_wait_task = asyncio.create_task(self._shutdown_event.wait())
+                done, _ = await asyncio.wait(
+                    {stream_task, shutdown_wait_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if shutdown_wait_task in done and not stream_task.done():
+                    stream_task.cancel()
+                    try:
+                        await stream_task
+                    except asyncio.CancelledError:
+                        pass
+                else:
+                    shutdown_wait_task.cancel()
+                    try:
+                        await shutdown_wait_task
+                    except asyncio.CancelledError:
+                        pass
+
+                if self._shutdown_event.is_set():
+                    break
+
+                if stream_task.done() and stream_task.exception():
+                    logger.warning(
+                        "Assignment stream ended with error: %s", stream_task.exception()
+                    )
+                logger.warning("Assignment stream ended unexpectedly; reconnecting in 2s...")
+                await asyncio.sleep(2)
+
+            if monitor_task:
+                monitor_task.cancel()
+            if auto_exit_on_job_complete and self._shutdown_event and self._shutdown_event.is_set():
+                logger.info("Training completed successfully!")
+                logger.info("=" * 60)
+            elif self.running:
+                logger.info("Worker stopped.")
+            else:
+                logger.info("Worker shutdown complete.")
 
         except KeyboardInterrupt:
             logger.info("\n\nTraining interrupted by user")
             raise
+        except asyncio.CancelledError:
+            logger.info("Worker stream cancelled, shutting down.")
         except Exception as e:
             logger.error(f"\n\nTraining failed: {e}", exc_info=True)
             raise

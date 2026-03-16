@@ -4,6 +4,7 @@ import logging
 import os
 from typing import List, Optional
 
+import boto3
 import grpc
 from app.config import settings
 from app.core.storage import get_dataset_storage
@@ -13,12 +14,16 @@ from app.services.batch_storage import BatchManager, create_storage_backend
 from app.services.data_distribution import DataDistributor, DistributionStrategy
 from app.services.dataset_loader import DatasetFormat, create_loader
 from app.services.dataset_sharder import DatasetSharder, ShardingConfig, ShardingStrategy
+from botocore.config import Config
 
 logger = logging.getLogger(__name__)
 
 
 def _get_batch_manager() -> BatchManager:
-    storage_type = os.getenv("BATCH_STORAGE_TYPE", "local")
+    storage_type = os.getenv("BATCH_STORAGE_TYPE")
+    if not storage_type:
+        # Respect USE_GCS in docker-compose when explicit batch storage type is not set.
+        storage_type = "gcs" if settings.USE_GCS else "local"
     if storage_type == "gcs":
         storage = create_storage_backend(
             storage_type="gcs", bucket_name=settings.GCS_BUCKET_DATASETS, base_prefix="batches"
@@ -173,8 +178,33 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
             storage_path = metadata.storage_path
             if storage_path.startswith("gs://"):
                 blob_path = storage_path.replace(f"gs://{settings.GCS_BUCKET_DATASETS}/", "")
-                storage_client = get_dataset_storage()
-                download_url = storage_client.generate_presigned_download_url(blob_path)
+                emulator_endpoint = os.getenv("STORAGE_EMULATOR_URL")
+                if emulator_endpoint:
+                    public_endpoint = os.getenv("STORAGE_PUBLIC_URL", emulator_endpoint)
+                    s3 = boto3.client(
+                        "s3",
+                        endpoint_url=public_endpoint,
+                        aws_access_key_id=(
+                            os.getenv("AWS_ACCESS_KEY_ID")
+                            or os.getenv("MINIO_ROOT_USER")
+                            or "meshml"
+                        ),
+                        aws_secret_access_key=(
+                            os.getenv("AWS_SECRET_ACCESS_KEY")
+                            or os.getenv("MINIO_ROOT_PASSWORD")
+                            or "meshml_minio_password"
+                        ),
+                        region_name="us-east-1",
+                        config=Config(signature_version="s3v4"),
+                    )
+                    download_url = s3.generate_presigned_url(
+                        "get_object",
+                        Params={"Bucket": settings.GCS_BUCKET_DATASETS, "Key": blob_path},
+                        ExpiresIn=3600,
+                    )
+                else:
+                    storage_client = get_dataset_storage()
+                    download_url = storage_client.generate_presigned_download_url(blob_path)
                 return dataset_sharder_pb2.GetBatchDownloadUrlResponse(
                     found=True,
                     download_url=download_url,

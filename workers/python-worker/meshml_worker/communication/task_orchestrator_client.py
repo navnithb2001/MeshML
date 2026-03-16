@@ -200,8 +200,7 @@ class TaskOrchestratorClient:
 
             logger.info(
                 f"Worker registered successfully: {self.worker_id} "
-                f"(groups: {list(response.groups)}, "
-                f"heartbeat: {self.heartbeat_interval}s)"
+                f"(heartbeat: {self.heartbeat_interval}s)"
             )
 
             # Start heartbeat
@@ -212,6 +211,9 @@ class TaskOrchestratorClient:
                 "groups": list(response.groups),
                 "heartbeat_interval": response.heartbeat_interval_seconds,
                 "message": response.message,
+                "cpu_cores": capabilities.cpu_cores,
+                "ram_gb": capabilities.ram_bytes / (1024**3),
+                "has_gpu": len(capabilities.gpus) > 0,
             }
 
         except grpc.RpcError as e:
@@ -432,7 +434,10 @@ class TaskOrchestratorClient:
             raise RuntimeError(f"Streaming task request failed: {e.details()}")
 
     async def run_assignment_stream(
-        self, handler, stop_event: Optional[asyncio.Event] = None
+        self,
+        handler,
+        stop_event: Optional[asyncio.Event] = None,
+        preferred_job_ids: Optional[List[str]] = None,
     ) -> None:
         """
         Maintain bidirectional stream and handle assignments.
@@ -443,31 +448,77 @@ class TaskOrchestratorClient:
         call = self.stub.StreamTasks()
         write_lock = asyncio.Lock()
 
+        # Prime stream on open so server can keep it alive and preflight sharding.
+        async with write_lock:
+            await call.write(
+                task_orchestrator_pb2.WorkerStreamRequest(
+                    worker_id=self.worker_id,
+                    task_request=task_orchestrator_pb2.TaskRequest(
+                        worker_id=self.worker_id,
+                        preferred_job_ids=preferred_job_ids or [],
+                    ),
+                )
+            )
+
         async def send_heartbeat():
+            first_tick = True
             while True:
-                await asyncio.sleep(self.heartbeat_interval)
+                if first_tick:
+                    first_tick = False
+                else:
+                    await asyncio.sleep(self.heartbeat_interval)
                 if stop_event and stop_event.is_set():
                     break
-                async with write_lock:
-                    await call.write(
-                        task_orchestrator_pb2.WorkerStreamRequest(
-                            worker_id=self.worker_id,
-                            heartbeat=task_orchestrator_pb2.Heartbeat(
+                try:
+                    async with write_lock:
+                        await call.write(
+                            task_orchestrator_pb2.WorkerStreamRequest(
                                 worker_id=self.worker_id,
-                                status="idle",
-                                active_tasks=0,
-                                cpu_usage_percent=0.0,
-                                ram_usage_percent=0.0,
-                                gpu_usage_percent=0.0,
-                            ),
+                                heartbeat=task_orchestrator_pb2.Heartbeat(
+                                    worker_id=self.worker_id,
+                                    status="idle",
+                                    active_tasks=0,
+                                    cpu_usage_percent=0.0,
+                                    ram_usage_percent=0.0,
+                                    gpu_usage_percent=0.0,
+                                ),
+                            )
                         )
-                    )
+                        # Re-issue task request so newly submitted jobs can be
+                        # discovered even if the stream was opened earlier.
+                        await call.write(
+                            task_orchestrator_pb2.WorkerStreamRequest(
+                                worker_id=self.worker_id,
+                                task_request=task_orchestrator_pb2.TaskRequest(
+                                    worker_id=self.worker_id,
+                                    preferred_job_ids=preferred_job_ids or [],
+                                ),
+                            )
+                        )
+                except Exception:
+                    # Stream likely closed; stop heartbeat loop.
+                    break
 
         heartbeat_task = asyncio.create_task(send_heartbeat())
         try:
-            async for response in call:
+            while True:
                 if stop_event and stop_event.is_set():
                     break
+                try:
+                    response = await call.read()
+                except asyncio.CancelledError:
+                    # Stream cancelled by shutdown or transport close.
+                    break
+                except grpc.aio.AioRpcError as e:
+                    logger.warning("Assignment stream closed: %s - %s", e.code(), e.details())
+                    break
+
+                if response is grpc.aio.EOF:
+                    logger.info("Assignment stream reached EOF")
+                    break
+                if not response:
+                    continue
+
                 if response.HasField("assignment"):
                     assignment = response.assignment
                     if not assignment.has_task:
@@ -512,154 +563,14 @@ class TaskOrchestratorClient:
                                 ),
                             )
                         )
-                except Exception:
+                except (asyncio.CancelledError, Exception):
                     pass
             heartbeat_task.cancel()
             try:
-                await call.done_writing()
+                call.cancel()
             except Exception:
                 pass
-
-    async def report_batch_complete(
-        self,
-        job_id: str,
-        batch_id: int,
-        epoch: int,
-        loss: float,
-        accuracy: float = 0.0,
-        processing_time_ms: int = 0,
-        samples_processed: Optional[int] = None,
-        training_time: Optional[float] = None,
-        metrics: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-        """
-        Report successful batch completion
-
-        Args:
-            job_id: Job identifier
-            batch_id: Batch identifier
-            epoch: Epoch number
-            loss: Training loss
-            accuracy: Training accuracy
-            processing_time_ms: Processing time in milliseconds
-            metrics: Additional metrics
-
-        Returns:
-            True if acknowledged, False otherwise
-        """
-        if not self.stub or not self.worker_id:
-            raise RuntimeError("Worker not registered")
-
-        logger.info(
-            f"Reporting batch completion: job={job_id}, batch={batch_id}, "
-            f"loss={loss:.4f}, accuracy={accuracy:.4f}"
-        )
-
-        try:
-            if isinstance(batch_id, str):
-                if "_batch_" in batch_id:
-                    try:
-                        batch_id = int(batch_id.split("_batch_")[-1])
-                    except ValueError:
-                        batch_id = 0
-                else:
-                    try:
-                        batch_id = int(batch_id)
-                    except ValueError:
-                        batch_id = 0
-
-            if training_time is not None and processing_time_ms <= 0:
-                processing_time_ms = int(training_time * 1000)
-
-            # Serialize metrics
-            metrics_bytes = b""
-            if metrics:
-                try:
-                    metrics_bytes = json.dumps(metrics).encode("utf-8")
-                except:
-                    logger.warning("Failed to serialize metrics")
-            elif samples_processed is not None:
-                try:
-                    metrics_bytes = json.dumps({"samples_processed": samples_processed}).encode(
-                        "utf-8"
-                    )
-                except:
-                    metrics_bytes = b""
-
-            # Create completion message
-            completion = task_orchestrator_pb2.BatchCompletion(
-                worker_id=self.worker_id,
-                job_id=job_id,
-                batch_id=batch_id,
-                epoch=epoch,
-                loss=loss,
-                accuracy=accuracy,
-                processing_time_ms=processing_time_ms,
-                metrics=metrics_bytes,
-            )
-
-            # Make RPC call
-            response: task_orchestrator_pb2.BatchAck = await self.stub.ReportBatchComplete(
-                completion
-            )
-
-            logger.info(f"Batch completion acknowledged: {response.message}")
-            return response.success
-
-        except grpc.RpcError as e:
-            logger.error(f"Batch completion report failed: {e.code()} - {e.details()}")
-            return False
-
-    async def report_batch_failed(
-        self, job_id: str, batch_id: int, epoch: int, error_message: str
-    ) -> bool:
-        """
-        Report batch processing failure
-
-        Args:
-            job_id: Job identifier
-            batch_id: Batch identifier
-            epoch: Epoch number
-            error_message: Error description
-
-        Returns:
-            True if acknowledged, False otherwise
-        """
-        if not self.stub or not self.worker_id:
-            raise RuntimeError("Worker not registered")
-
-        logger.info(
-            f"Reporting batch failure: job={job_id}, batch={batch_id}, " f"error={error_message}"
-        )
-
-        try:
-            if isinstance(batch_id, str):
-                if "_batch_" in batch_id:
-                    try:
-                        batch_id = int(batch_id.split("_batch_")[-1])
-                    except ValueError:
-                        batch_id = 0
-                else:
-                    try:
-                        batch_id = int(batch_id)
-                    except ValueError:
-                        batch_id = 0
-
-            # Create failure message
-            failure = task_orchestrator_pb2.BatchFailure(
-                worker_id=self.worker_id,
-                job_id=job_id,
-                batch_id=batch_id,
-                epoch=epoch,
-                error_message=error_message,
-            )
-
-            # Make RPC call
-            response: task_orchestrator_pb2.BatchAck = await self.stub.ReportBatchFailed(failure)
-
-            logger.info(f"Batch failure acknowledged: {response.message}")
-            return response.success
-
-        except grpc.RpcError as e:
-            logger.error(f"Batch failure report failed: {e.code()} - {e.details()}")
-            return False
+            try:
+                await call.done_writing()
+            except (asyncio.CancelledError, Exception):
+                pass

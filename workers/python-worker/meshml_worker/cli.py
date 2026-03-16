@@ -20,8 +20,19 @@ from meshml_worker.config import WorkerConfig, load_config
 from meshml_worker.main import MeshMLWorker
 
 
+def _default_config_path() -> Path:
+    """Resolve the same default config location used by load_config()."""
+    home_config = Path.home() / ".meshml" / "config.yaml"
+    local_config = Path(".meshml") / "config.yaml"
+    if home_config.exists():
+        return home_config
+    if local_config.exists():
+        return local_config
+    return home_config
+
+
 @click.group()
-@click.version_option(version="0.2.8")
+@click.version_option(version="0.3.2")
 def main() -> None:
     """MeshML Worker - Federated Learning Worker"""
     pass
@@ -121,7 +132,7 @@ def login(email: str, password: str) -> None:
             sys.exit(1)
         config.api_base_url = api_url
         if not getattr(config, "worker", None):
-            config.worker = type("Worker", (), {"worker_id": "temp", "user_email": None})()
+            config.worker = type("Worker", (), {"id": "temp", "user_email": None})()
 
         # Initialize registration manager
         registration = WorkerRegistration(config)
@@ -161,9 +172,11 @@ def join(invitation_code: str, worker_id: str) -> None:
             sys.exit(1)
         config.api_base_url = api_url
         if not getattr(config, "worker", None):
-            config.worker = type("Worker", (), {"worker_id": worker_id, "user_email": None})()
+            config.worker = type("Worker", (), {"id": worker_id, "user_email": None})()
         else:
-            config.worker.worker_id = worker_id
+            config.worker.id = worker_id
+        config.setup()
+        config.save_to_file(_default_config_path())
 
         # Initialize registration manager (will load saved auth token)
         registration = WorkerRegistration(config)
@@ -239,7 +252,7 @@ def run(
         # Create minimal config to load auth
         class AuthConfig:
             def __init__(self):
-                self.worker = type("Worker", (), {"worker_id": "temp", "user_email": None})()
+                self.worker = type("Worker", (), {"id": "temp", "user_email": None})()
 
         auth_config = AuthConfig()
         registration = WorkerRegistration(auth_config)
@@ -304,7 +317,6 @@ def run(
         # Run orchestrated training with platform integration
         asyncio.run(worker.run(user_id=user_id, preferred_job_ids=preferred_job_ids))
 
-        click.echo("\n✓ Training completed successfully!")
 
     except KeyboardInterrupt:
         click.echo("\n\n✗ Training interrupted by user")

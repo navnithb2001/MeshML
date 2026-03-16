@@ -102,5 +102,10 @@ class AssignmentEngine:
                     self.stream_manager.assign_batch(worker_id, batch.id)
                     await self.stream_manager.push_assignment(worker_id, payload)
             except Exception as e:
-                logger.error(f"Assignment engine error: {e}")
+                logger.exception(
+                    "Assignment engine error (model_registry=%s, dataset_sharder=%s): %s",
+                    self.model_registry.grpc_url,
+                    self.dataset_sharder.grpc_url,
+                    e,
+                )
                 await asyncio.sleep(self.poll_interval)

@@ -4,44 +4,45 @@ MeshML is a high-performance, distributed machine learning ecosystem designed to
 
 ---
 
-## 🏗️ System Architecture
+## 🏗️ Full System Design: Who Calls What
 
-The system is organized into four functional planes to ensure separation of concerns and high availability:
+### Phase A: Ingestion (The Setup)
+1. **User → API Gateway (REST):** Uploads the `model.py` definition and the `dataset.tar.gz` archive via standard HTTP POST requests.
+2. **API Gateway → Model Registry (gRPC):** Calls `RegisterNewModel()`. The Registry saves the Python file to Object Storage (MinIO/GCS) and creates a record in the `models` table with `version_1`.
+3. **API Gateway → Dataset Sharder (gRPC):** Triggers the sharding process. The Sharder physically splits the uploaded data, saves chunks to Object Storage, and populates the `data_batches` table so available work is visible to the scheduler.
 
-* **Ingestion Plane:** Manages the entry of raw training scripts (`model.py`) and datasets.
-* **Control Plane:** Manages job scheduling, worker orchestration, and model versioning.
-* **Data Plane:** Optimized for high-throughput binary data movement (weights and shards).
-* **Observability Plane:** Provides real-time feedback and historical tracking of training performance.
+### Phase B: Orchestration (Starting the Job)
+1. **User → API Gateway (REST):** Starts a job on a selected dataset/model version.
+2. **API Gateway → Task Orchestrator (gRPC):** Calls `InitiateTraining(job_id, model_version)`.
+3. **Task Orchestrator → Model Registry (gRPC):** Calls `GetModelArtifact()` to generate short-lived signed URLs for model code; those URLs are embedded into worker task assignments.
 
----
+### Phase C: Training Loop (The Work)
+1. **Worker ↔ Task Orchestrator (gRPC):** Uses bidirectional `StreamTasks`. The Orchestrator pushes assignments, and workers stream heartbeat + task status (`TaskResult`) back.
+2. **Worker → Object Storage (HTTP):** Downloads `model.py` and assigned `data_batch` directly using signed URLs.
+3. **Worker ↔ Parameter Server (gRPC):** Pulls global weights (`PullWeights`), computes local gradients, and pushes updates (`PushGradients`) using binary tensor payloads.
+4. **Parameter Server → Model Registry (Internal):** A background persistence loop periodically saves checkpoints based on version intervals.
 
-## 🛠️ Core Components
-
-### 1. API Gateway (The Entry Point)
-Acts as the central router for all external traffic. It provides a RESTful interface for job submission and serves as a protocol bridge, translating external HTTP requests into internal gRPC calls.
-
-### 2. Dataset Sharder & Model Registry
-* **Sharder:** Automatically partitions large datasets into optimized binary shards. It maintains the `data_batches` table to track task availability.
-* **Registry:** Manages versioned checkpoints and final model artifacts. It handles SHA-256 integrity hashing and generates Signed URLs for secure data access.
-
-### 3. Task Orchestrator (The Brain)
-Maintains bidirectional gRPC streams with all active workers. It uses a **Push Model** to assign tasks: the moment a data batch is ready, the Orchestrator pushes a packet to an idle worker containing Signed URLs for both the code and the data.
-
-### 4. Parameter Server (The Math Engine)
-Implements an **Asynchronous SGD** strategy. It manages global model weights in a high-speed Redis store and applies an **Exponential Staleness Penalty** ($e^{-\lambda \cdot \Delta v}$) to ensure slow workers do not corrupt the global model state.
+### Phase D: Completion (The Result)
+1. **Parameter Server → Model Registry (gRPC):** When global version reaches `final_version`, uploads final `state_dict`.
+2. **Model Registry:** Marks model `COMPLETED` and stores final `.pt`.
+3. **API Gateway → User:** Exposes completed status and download endpoints through REST.
 
 ---
 
-## 📡 Protocol Split & Communication
+## 📡 Architectural Choice: The Protocol Split
 
-MeshML uses a "Hybrid Protocol" strategy to optimize for both compatibility and performance:
+MeshML uses a strict protocol split: high-frequency control/math over gRPC, user-facing and blob transfer over HTTP.
 
-| Connection Path | Protocol | Purpose |
-| :--- | :--- | :--- |
-| **User ↔ Gateway** | **HTTP / REST** | Browser compatibility and CLI tool support. |
-| **Worker ↔ Storage** | **HTTP Signed URLs** | High-speed file transfers bypassing application logic. |
-| **Internal Mesh** | **gRPC (Binary)** | Low-latency, strongly-typed internal service communication. |
-| **Live Dashboard** | **WebSockets** | Real-time streaming of loss and accuracy metrics. |
+### 1. The gRPC Plane (High-Performance Control & Math)
+- **Worker ↔ Task Orchestrator:** Bidirectional streaming (`StreamTasks`) for push assignments and live worker status.
+- **Worker ↔ Parameter Server:** Binary gradient and weight transport over Protobuf for low latency and low CPU overhead.
+- **Worker ↔ Metrics Service:** Streaming metrics updates for near-real-time observability.
+- **Internal service-to-service:** API Gateway triggers internal commands (`RegisterNewModel`, `InitiateTraining`, sharding) via gRPC contracts.
+
+### 2. The HTTP Plane (Universal Access & Blob Transfer)
+- **Worker → Object Storage (Signed URLs):** Large model/data blob downloads use direct HTTP/HTTPS for throughput and resilience.
+- **User ↔ API Gateway:** Authentication, group/project actions, uploads, and job triggers use REST/HTTP for browser/CLI compatibility.
+- **Observability (WebSockets):** API Gateway upgrades HTTP to WebSockets to stream live training updates to dashboards.
 
 ---
 

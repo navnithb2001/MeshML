@@ -131,6 +131,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
       GCS_BUCKET_NAME: meshml-models-local
       STORAGE_EMULATOR_URL: http://minio:9000
+      STORAGE_PUBLIC_URL: http://localhost:9000
       AWS_ACCESS_KEY_ID: meshml
       AWS_SECRET_ACCESS_KEY: meshml_minio_password
     depends_on:
@@ -162,8 +163,10 @@ services:
       REDIS_URL: redis://redis:6379/1
       LOCAL_STORAGE_PATH: /app/datasets
       USE_GCS: "true"
+      BATCH_STORAGE_TYPE: gcs
       GCS_BUCKET_NAME: meshml-datasets-local
       STORAGE_EMULATOR_URL: http://minio:9000
+      STORAGE_PUBLIC_URL: http://localhost:9000
       AWS_ACCESS_KEY_ID: meshml
       AWS_SECRET_ACCESS_KEY: meshml_minio_password
     depends_on:

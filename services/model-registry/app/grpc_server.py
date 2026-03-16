@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 from typing import Optional
+from urllib.parse import urlparse
 from uuid import UUID
 
 import boto3
@@ -27,9 +28,10 @@ class ModelRegistryServicer(model_registry_pb2_grpc.ModelRegistryServicer):
     def __init__(self, gcs_client: Optional[GCSClient]):
         self.gcs_client = gcs_client
         self.emulator_url = os.getenv("STORAGE_EMULATOR_URL")
+        self.public_emulator_url = os.getenv("STORAGE_PUBLIC_URL", self.emulator_url)
         self.emulator_bucket = settings.GCS_BUCKET_NAME
 
-    def _get_emulator_client(self):
+    def _get_emulator_client(self, endpoint_url: Optional[str] = None):
         access_key = os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("MINIO_ROOT_USER") or "meshml"
         secret_key = (
             os.getenv("AWS_SECRET_ACCESS_KEY")
@@ -38,7 +40,7 @@ class ModelRegistryServicer(model_registry_pb2_grpc.ModelRegistryServicer):
         )
         return boto3.client(
             "s3",
-            endpoint_url=self.emulator_url,
+            endpoint_url=endpoint_url or self.emulator_url,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name="us-east-1",
@@ -50,6 +52,23 @@ class ModelRegistryServicer(model_registry_pb2_grpc.ModelRegistryServicer):
             client.head_bucket(Bucket=self.emulator_bucket)
         except Exception:
             client.create_bucket(Bucket=self.emulator_bucket)
+
+    def _rewrite_presigned_url_for_public(self, url: str) -> str:
+        """
+        Replace docker-internal storage host with host-accessible endpoint for
+        URLs consumed by host workers.
+        """
+        if not self.emulator_url or not self.public_emulator_url:
+            return url
+        internal = urlparse(self.emulator_url)
+        public = urlparse(self.public_emulator_url)
+        if not internal.netloc or not public.netloc or internal.netloc == public.netloc:
+            return url
+        return url.replace(
+            f"{internal.scheme}://{internal.netloc}",
+            f"{public.scheme}://{public.netloc}",
+            1,
+        )
 
     def _upload_bytes(self, key: str, data: bytes) -> str:
         if self.emulator_url:
@@ -83,7 +102,9 @@ class ModelRegistryServicer(model_registry_pb2_grpc.ModelRegistryServicer):
 
     def _generate_upload_url(self, key: str, expires_in: int = 3600) -> str:
         if self.emulator_url:
-            client = self._get_emulator_client()
+            # Upload URL is consumed by in-cluster services (API Gateway), so keep
+            # internal docker endpoint here.
+            client = self._get_emulator_client(endpoint_url=self.emulator_url)
             self._ensure_emulator_bucket(client)
             return client.generate_presigned_url(
                 "put_object",
@@ -104,13 +125,17 @@ class ModelRegistryServicer(model_registry_pb2_grpc.ModelRegistryServicer):
 
     def _generate_download_url(self, key: str, expires_in: int = 3600) -> str:
         if self.emulator_url:
-            client = self._get_emulator_client()
-            self._ensure_emulator_bucket(client)
-            return client.generate_presigned_url(
+            # Bucket checks must use docker-internal endpoint; URL signing for host workers
+            # must use the public endpoint so the Host header matches the signature.
+            internal_client = self._get_emulator_client(endpoint_url=self.emulator_url)
+            self._ensure_emulator_bucket(internal_client)
+            signing_client = self._get_emulator_client(endpoint_url=self.public_emulator_url)
+            download_url = signing_client.generate_presigned_url(
                 "get_object",
                 Params={"Bucket": self.emulator_bucket, "Key": key},
                 ExpiresIn=expires_in,
             )
+            return download_url
 
         if not self.gcs_client:
             raise RuntimeError("GCS not available")

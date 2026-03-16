@@ -19,6 +19,11 @@ class DummyTask:
         return None
 
 
+def _fake_create_task(coro):
+    coro.close()
+    return DummyTask()
+
+
 class FakeWorkerDiscovery:
     def __init__(self):
         self.config = SimpleNamespace(heartbeat_timeout_seconds=30)
@@ -37,7 +42,8 @@ class FakeWorkerRegistry:
 async def test_register_worker_returns_generated_worker():
     with (
         patch("app.grpc_server.AssignmentEngine", DummyAssignmentEngine),
-        patch("app.grpc_server.asyncio.create_task", return_value=DummyTask()),
+        patch("app.grpc_server.asyncio.create_task", side_effect=_fake_create_task),
+        patch.object(TaskOrchestratorServicer, "_resolve_worker_groups", return_value=[]),
     ):
         discovery = FakeWorkerDiscovery()
         registry = FakeWorkerRegistry()
@@ -66,7 +72,8 @@ async def test_register_worker_returns_generated_worker():
 async def test_send_heartbeat_acknowledges_registered_worker():
     with (
         patch("app.grpc_server.AssignmentEngine", DummyAssignmentEngine),
-        patch("app.grpc_server.asyncio.create_task", return_value=DummyTask()),
+        patch("app.grpc_server.asyncio.create_task", side_effect=_fake_create_task),
+        patch.object(TaskOrchestratorServicer, "_resolve_worker_groups", return_value=[]),
     ):
         servicer = TaskOrchestratorServicer(
             worker_discovery=FakeWorkerDiscovery(),

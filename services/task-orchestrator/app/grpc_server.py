@@ -124,6 +124,41 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             self.assignment_engine.run(self._assignment_stop)
         )
 
+    async def _resolve_worker_groups(self, user_id: str, worker_id: str) -> List[str]:
+        groups: List[str] = []
+        try:
+            async with AsyncSessionLocal() as session:
+                if user_id:
+                    result = await session.execute(
+                        text(
+                            """
+                            SELECT DISTINCT gm.group_id::text AS group_id
+                            FROM group_members gm
+                            WHERE gm.user_id::text = :user_id
+                            ORDER BY gm.group_id::text
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                    groups = [str(row.group_id) for row in result if getattr(row, "group_id", None)]
+
+                if not groups and worker_id:
+                    result = await session.execute(
+                        text(
+                            """
+                            SELECT DISTINCT gm.group_id::text AS group_id
+                            FROM group_members gm
+                            WHERE gm.worker_id = :worker_id
+                            ORDER BY gm.group_id::text
+                            """
+                        ),
+                        {"worker_id": worker_id},
+                    )
+                    groups = [str(row.group_id) for row in result if getattr(row, "group_id", None)]
+        except Exception as exc:
+            logger.warning("Failed to resolve worker groups for user_id=%s: %s", user_id, exc)
+        return groups
+
     async def InitiateTraining(self, request, context):
         try:
             requirements = JobRequirements(
@@ -157,14 +192,28 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 priority = JobPriority.MEDIUM
 
             self.job_queue.submit_job(metadata, priority)
+            # No separate validator service is running in this deployment.
+            # Promote submitted jobs into WAITING immediately.
+            self.job_queue.mark_validation_complete(
+                metadata.job_id,
+                model_validation_passed=True,
+                dataset_validation_passed=True,
+                validation_errors=None,
+            )
+            logger.info("InitiateTraining accepted job_id=%s", metadata.job_id)
             return task_orchestrator_pb2.JobSubmissionAck(success=True, message="submitted")
         except Exception as e:
+            logger.exception("InitiateTraining failed for job_id=%s: %s", request.job_id, e)
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
     async def RegisterWorker(self, request, context):
         try:
-            worker_id = f"worker-{uuid.uuid4().hex[:8]}"
-            group_id = request.user_id or "default"
+            requested_id = (request.worker_name or "").strip()
+            # Honor caller-provided worker identity when present so external
+            # tooling can target an existing worker deterministically.
+            worker_id = requested_id if requested_id else f"worker-{uuid.uuid4().hex[:8]}"
+            groups = await self._resolve_worker_groups(request.user_id, worker_id)
+            group_id = groups[0] if groups else (request.user_id or "default")
 
             gpu_count = len(request.gpus)
             gpu_mem_gb = max([_bytes_to_gb(g.memory_bytes) for g in request.gpus], default=0.0)
@@ -199,7 +248,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
 
             return task_orchestrator_pb2.WorkerRegistration(
                 worker_id=worker_id,
-                groups=[group_id],
+                groups=groups or [group_id],
                 heartbeat_interval_seconds=self.worker_discovery.config.heartbeat_timeout_seconds,
                 message="registered",
             )
@@ -301,52 +350,128 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         try:
             worker_id = None
             outbound = asyncio.Queue()
+            logger.info("StreamTasks opened")
 
             async def _reader():
                 nonlocal worker_id
                 try:
                     async for request in request_iterator:
-                        worker_id = request.worker_id or worker_id
-                        if not worker_id:
-                            continue
-                        self.stream_manager.register(worker_id, outbound)
+                        try:
+                            worker_id = request.worker_id or worker_id
+                            if not worker_id:
+                                continue
+                            self.stream_manager.register(worker_id, outbound)
 
-                        if request.HasField("heartbeat"):
-                            success = self.worker_registry.update_heartbeat(
-                                worker_id, request.heartbeat.status
-                            )
-                            await outbound.put(
-                                task_orchestrator_pb2.OrchestratorStreamResponse(
-                                    worker_id=worker_id,
-                                    heartbeat_ack=task_orchestrator_pb2.HeartbeatAck(
-                                        success=success,
-                                        message="ok" if success else "worker not found",
-                                        server_timestamp=int(asyncio.get_event_loop().time()),
-                                    ),
+                            if request.HasField("heartbeat"):
+                                success = self.worker_registry.update_heartbeat(
+                                    worker_id, request.heartbeat.status
                                 )
+                                await outbound.put(
+                                    task_orchestrator_pb2.OrchestratorStreamResponse(
+                                        worker_id=worker_id,
+                                        heartbeat_ack=task_orchestrator_pb2.HeartbeatAck(
+                                            success=success,
+                                            message="ok" if success else "worker not found",
+                                            server_timestamp=int(asyncio.get_event_loop().time()),
+                                        ),
+                                    )
+                                )
+                            elif request.HasField("task_result"):
+                                await self._handle_task_result(request.task_result)
+                            elif request.HasField("task_request"):
+                                # Prime sharding/data_batches for streaming workers so the
+                                # assignment engine has persisted rows to dispatch.
+                                await self._ensure_stream_job_sharded(
+                                    worker_id=worker_id,
+                                    preferred_job_ids=list(request.task_request.preferred_job_ids),
+                                )
+                        except Exception:
+                            logger.exception(
+                                "StreamTasks request handling failed for worker %s", worker_id
                             )
-                        elif request.HasField("task_result"):
-                            await self._handle_task_result(request.task_result)
-                        elif request.HasField("task_request"):
-                            pass
+                            continue
                 except Exception:
-                    pass
-                finally:
-                    if worker_id:
-                        await self._handle_disconnect(worker_id)
+                    logger.exception("StreamTasks reader failed for worker %s", worker_id)
 
             reader_task = asyncio.create_task(_reader())
 
             while True:
-                if reader_task.done() and outbound.empty():
-                    break
                 try:
                     response = await asyncio.wait_for(outbound.get(), timeout=1.0)
                     yield response
                 except asyncio.TimeoutError:
+                    if reader_task.done():
+                        # Keep stream open even if client finished request-side writes.
+                        # Assignments can still be pushed on response stream.
+                        try:
+                            exc = reader_task.exception()
+                        except asyncio.CancelledError:
+                            exc = None
+                        if exc:
+                            logger.warning(
+                                "StreamTasks reader ended with exception for worker %s: %s",
+                                worker_id,
+                                exc,
+                            )
+                        # If stream never received a worker id and reader is done,
+                        # there is no active client to keep alive for.
+                        if worker_id is None:
+                            break
                     continue
+                except asyncio.CancelledError:
+                    break
+            logger.info("StreamTasks context closed for worker %s", worker_id)
         except Exception as e:
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
+        finally:
+            try:
+                if "reader_task" in locals():
+                    reader_task.cancel()
+            except Exception:
+                pass
+            if worker_id:
+                await self._handle_disconnect(worker_id)
+            logger.info("StreamTasks closed for worker %s", worker_id)
+
+    async def _ensure_stream_job_sharded(
+        self, worker_id: str, preferred_job_ids: Optional[List[str]] = None
+    ) -> None:
+        """
+        Ensure sharding has run for at least one candidate job in stream mode.
+
+        StreamTasks relies on AssignmentEngine reading data_batches; this hook
+        reuses RequestTask's sharding path so batches are persisted before
+        assignment polling attempts to dispatch work.
+        """
+        try:
+            worker = self.worker_registry.get_worker(worker_id)
+            if not worker:
+                return
+
+            job_info = None
+            for job_id in preferred_job_ids or []:
+                candidate = self.job_queue.get_job(job_id)
+                if candidate and candidate.status.value == "waiting":
+                    job_info = candidate
+                    break
+
+            if not job_info:
+                requirements = JobRequirements(
+                    min_gpu_count=worker.capabilities.gpu_count,
+                    min_gpu_memory_gb=worker.capabilities.gpu_memory_gb,
+                    min_cpu_count=worker.capabilities.cpu_count,
+                    min_ram_gb=worker.capabilities.ram_gb,
+                    requires_cuda=worker.capabilities.supports_cuda,
+                    requires_mps=worker.capabilities.supports_mps,
+                )
+                job_info = self.job_queue.get_next_job(requirements)
+
+            if not job_info:
+                return
+
+            await self._ensure_shards_and_assign_batches(job_info, worker_id)
+        except Exception as exc:
+            logger.warning("Stream sharding preflight failed for worker %s: %s", worker_id, exc)
 
     async def _handle_task_result(self, result):
         async with AsyncSessionLocal() as session:
@@ -378,6 +503,14 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 return
 
             failure_count = self._increment_batch_failure(job_id, batch.id)
+            logger.warning(
+                "TaskResult failure job=%s batch=%s worker=%s failure_count=%s error=%s",
+                job_id,
+                batch.id,
+                result.worker_id,
+                failure_count,
+                (result.error_message or "")[:300],
+            )
             if failure_count >= 3:
                 batch.status = "FAILED"
                 batch.assigned_worker_id = None
@@ -499,33 +632,6 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             },
         )
         await session.commit()
-
-    async def ReportBatchComplete(self, request, context):
-        try:
-            # Best-effort: update job progress
-            self.job_queue.update_job_status(
-                request.job_id,
-                new_status=None,
-                progress={
-                    "current_epoch": request.epoch,
-                    "loss": request.loss,
-                    "accuracy": request.accuracy,
-                },
-            )
-            return task_orchestrator_pb2.BatchAck(success=True, message="ack", should_continue=True)
-        except Exception as e:
-            await context.abort(grpc.StatusCode.INTERNAL, str(e))
-
-    async def ReportBatchFailed(self, request, context):
-        try:
-            self.job_queue.update_job_status(
-                request.job_id, new_status=None, error_message=request.error_message
-            )
-            return task_orchestrator_pb2.BatchAck(
-                success=True, message="ack", should_continue=False
-            )
-        except Exception as e:
-            await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
     async def _ensure_shards_and_assign_batches(
         self, job_info, worker_id: str

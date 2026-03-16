@@ -10,6 +10,7 @@ Handles:
 """
 
 import asyncio
+import io
 import logging
 import time
 from pathlib import Path
@@ -163,6 +164,9 @@ class Trainer:
             for epoch in range(self.current_epoch, max_epochs):
                 self.current_epoch = epoch
 
+                logger.info("-" * 60)
+                logger.info("-" * 60)
+                logger.info("\n")
                 logger.info(f"Epoch {epoch + 1}/{max_epochs}")
 
                 # Train one epoch with batch-level reporting
@@ -185,38 +189,17 @@ class Trainer:
                     f"Epoch {epoch + 1} completed: loss={epoch_loss:.4f}, "
                     f"accuracy={epoch_metrics.get('accuracy', 'N/A')}"
                 )
+                logger.info("\n")
+                logger.info("-" * 60)
+                logger.info("-" * 60)
 
             logger.info("Orchestrated training completed successfully")
 
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")
-            # Report failure to orchestrator
-            if self.orchestrator_client:
-                for batch_id in batch_ids:
-                    try:
-                        await self.orchestrator_client.report_batch_failed(
-                            job_id=job_id,
-                            batch_id=batch_id,
-                            epoch=self.current_epoch,
-                            error_message="Training interrupted by user",
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to report failure for batch {batch_id}: {e}")
             raise
         except Exception as e:
             logger.error(f"Orchestrated training failed: {e}", exc_info=True)
-            # Report failure to orchestrator
-            if self.orchestrator_client:
-                for batch_id in batch_ids:
-                    try:
-                        await self.orchestrator_client.report_batch_failed(
-                            job_id=job_id,
-                            batch_id=batch_id,
-                            epoch=self.current_epoch,
-                            error_message=str(e),
-                        )
-                    except Exception as report_err:
-                        logger.error(f"Failed to report failure for batch {batch_id}: {report_err}")
             raise
         finally:
             if self.metrics_client:
@@ -281,6 +264,9 @@ class Trainer:
                 loss.backward()
                 self.optimizer.step()
 
+            # Keep Parameter Server state moving in orchestrated mode as batches are processed.
+            self._push_gradients(batch_idx=batch_idx, epoch=epoch, loss=loss.item())
+
             # Update metrics
             epoch_loss += loss.item()
             _, predicted = torch.max(output.data, 1)
@@ -303,25 +289,11 @@ class Trainer:
                     timestamp_ms=int(time.time() * 1000),
                 )
 
-            # Report to orchestrator every N batches or at the end of a shard
-            if self.orchestrator_client and batch_ids and (batch_idx + 1) % batches_per_shard == 0:
-                if current_batch_idx < len(batch_ids):
-                    batch_id = batch_ids[current_batch_idx]
-                    try:
-                        await self.orchestrator_client.report_batch_complete(
-                            job_id=job_id,
-                            batch_id=batch_id,
-                            epoch=epoch,
-                            loss=avg_loss,
-                            accuracy=accuracy,
-                            samples_processed=total,
-                            training_time=0.0,  # Could add timer here
-                        )
-                        logger.debug(f"Reported completion for batch {batch_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to report batch completion: {e}")
-
-                    current_batch_idx += 1
+            # Keep shard accounting aligned for stream-level TaskResult reporting.
+            if batch_ids and (batch_idx + 1) % batches_per_shard == 0 and current_batch_idx < len(
+                batch_ids
+            ):
+                current_batch_idx += 1
 
         # Calculate final metrics
         avg_loss = epoch_loss / batch_count if batch_count > 0 else 0
@@ -377,7 +349,8 @@ class Trainer:
         self._initialize_optimizer()
 
         # Fetch initial weights from Parameter Server
-        self._fetch_weights(model_id)
+        params_job_id = self.job_id or model_id
+        self._fetch_weights(params_job_id)
 
         logger.info("Training initialization complete (orchestrated mode)")
 
@@ -430,32 +403,83 @@ class Trainer:
         Returns:
             DataLoader instance
         """
-        from torch.utils.data import ConcatDataset, DataLoader
-        from torchvision import datasets, transforms
+        import pickle
+        from torch.utils.data import ConcatDataset, DataLoader, TensorDataset
 
         logger.info(f"Creating DataLoader from {len(shard_paths)} shards")
 
-        # Default transform (can be customized per model)
-        transform = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
-        )
-
-        # Load each shard as a dataset
+        # Preferred path: load pre-downloaded serialized batch payloads.
         shard_datasets = []
         for shard_path in shard_paths:
             try:
-                # Assume ImageFolder format for now
-                # TODO: Support other formats based on metadata
+                batch_file = shard_path / "batch.data"
+                if batch_file.exists():
+                    batch_bytes = batch_file.read_bytes()
+                    try:
+                        payload = pickle.loads(batch_bytes)
+                    except ModuleNotFoundError:
+                        # Dataset-sharder pickles DataSample as app.services.dataset_loader.DataSample.
+                        # Worker runtime does not have that module path, so remap during unpickle.
+                        class _DataSampleCompat:
+                            def __init__(self, data, label, metadata, sample_id):
+                                self.data = data
+                                self.label = label
+                                self.metadata = metadata
+                                self.sample_id = sample_id
+
+                        class _CompatUnpickler(pickle.Unpickler):
+                            def find_class(self, module, name):
+                                if module == "app.services.dataset_loader" and name == "DataSample":
+                                    return _DataSampleCompat
+                                return super().find_class(module, name)
+
+                        payload = _CompatUnpickler(io.BytesIO(batch_bytes)).load()
+                    samples = payload.get("samples", [])
+                    if not samples:
+                        logger.warning(f"Shard {shard_path} has no samples")
+                        continue
+
+                    xs = []
+                    ys = []
+                    for sample in samples:
+                        sample_data = sample.get("data") if isinstance(sample, dict) else sample.data
+                        sample_label = (
+                            sample.get("label") if isinstance(sample, dict) else sample.label
+                        )
+                        x = torch.as_tensor(sample_data, dtype=torch.float32)
+                        # Convert HWC -> CHW for image tensors.
+                        if x.ndim == 3:
+                            x = x.permute(2, 0, 1)
+                        elif x.ndim == 2:
+                            x = x.unsqueeze(0)
+                        xs.append(x)
+                        ys.append(int(sample_label))
+
+                    dataset = TensorDataset(torch.stack(xs), torch.tensor(ys, dtype=torch.long))
+                    shard_datasets.append(dataset)
+                    logger.debug(
+                        f"Loaded serialized shard from {batch_file}: {len(dataset)} samples"
+                    )
+                    continue
+            except Exception as e:
+                logger.warning(f"Failed to load serialized shard from {shard_path}: {e}")
+
+            # Backward compatibility: if shard directory contains image folders, use torchvision.
+            try:
+                from torchvision import datasets, transforms
+
+                transform = transforms.Compose(
+                    [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
+                )
                 dataset = datasets.ImageFolder(root=str(shard_path), transform=transform)
                 shard_datasets.append(dataset)
-                logger.debug(f"Loaded shard from {shard_path}: {len(dataset)} samples")
-
-            except Exception as e:
-                logger.warning(f"Failed to load shard from {shard_path}: {e}")
+                logger.debug(f"Loaded imagefolder shard from {shard_path}: {len(dataset)} samples")
+            except Exception as img_err:
+                logger.warning(f"Failed to load shard from {shard_path}: {img_err}")
                 continue
 
         if not shard_datasets:
-            raise ValueError("No valid shards could be loaded")
+            raise ValueError("No valid shards could be loaded from serialized batches or imagefolders")
 
         # Combine all shards into one dataset
         combined_dataset = ConcatDataset(shard_datasets)
@@ -480,22 +504,22 @@ class Trainer:
 
         logger.info("Optimizer initialized: Adam(lr=0.001)")
 
-    def _fetch_weights(self, model_id: str) -> None:
+    def _fetch_weights(self, params_job_id: str) -> None:
         """Fetch initial weights from Parameter Server
 
         Args:
-            model_id: Model ID
+            params_job_id: Parameter Server job identifier
         """
         logger.info("Fetching initial weights from Parameter Server...")
 
         try:
             # Get current model version
-            version = self.grpc_client.get_model_version(model_id)
+            version = self.grpc_client.get_model_version(params_job_id)
             self.global_version = version
             logger.info(f"Current Parameter Server version: {version}")
 
             # Get weights (if available)
-            state_dict = self.grpc_client.get_weights(model_id, version)
+            state_dict = self.grpc_client.get_weights(params_job_id, version)
 
             # Load state dict into model if we got weights
             if state_dict and self.model is not None:
@@ -687,7 +711,7 @@ class Trainer:
             # Push to Parameter Server via HTTP
             response = self.grpc_client.push_gradients(
                 worker_id=self.config.worker.id or "unknown",
-                model_id=self.model_id or "unknown",
+                model_id=self.job_id or self.model_id or "unknown",
                 version_id=self.global_version,
                 gradients=gradients,
                 num_samples=self.config.training.batch_size,
@@ -695,6 +719,8 @@ class Trainer:
                 metrics=metadata,
             )
 
+            if response.get("success"):
+                self.global_version = int(response.get("new_version", self.global_version))
             logger.debug(f"Gradients pushed: batch={batch_idx}, response={response}")
 
         except Exception as e:

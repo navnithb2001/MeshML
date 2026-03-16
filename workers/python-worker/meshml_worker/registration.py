@@ -36,7 +36,11 @@ class WorkerRegistration:
         """
         self.config = config
         self.api_base_url = getattr(config, "api_base_url", "http://localhost:8000")
-        self.worker_id = config.worker.worker_id
+        self.worker_id = getattr(config.worker, "id", None) or getattr(
+            config.worker, "worker_id", None
+        )
+        if not self.worker_id:
+            self.worker_id = "worker-temp"
         self.user_email = getattr(config.worker, "user_email", None)
         self.registered = False
         self.current_group_id: Optional[str] = None

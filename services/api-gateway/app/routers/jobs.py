@@ -14,10 +14,12 @@ import uuid
 from typing import List, Optional
 
 import redis.asyncio as redis
+from app.clients.dataset_sharder_client import DatasetSharderClient
 from app.clients.task_orchestrator_client import TaskOrchestratorClient
 from app.models.dataset import Dataset
 from app.models.group import GroupMember
 from app.models.job import Job
+from app.proto import dataset_sharder_pb2
 from app.models.user import User
 from app.proto import task_orchestrator_pb2
 from app.routers.auth import get_current_user
@@ -90,7 +92,7 @@ async def create_job(
     await db.commit()
     await db.refresh(job)
 
-    # Submit job to Task Orchestrator via gRPC
+    # Submit job to internal services via gRPC
     try:
         config = job.config or {}
 
@@ -165,21 +167,82 @@ async def create_job(
             except Exception:
                 pass
 
-        orchestrator = TaskOrchestratorClient()
-        response = await orchestrator.initiate_training(submission)
-        if not response.success:
-            raise RuntimeError(response.message or "submission failed")
+        # Strict architecture compliance: API Gateway triggers Dataset Sharder directly.
+        dataset_result = await db.execute(select(Dataset).where(Dataset.id == job.dataset_id))
+        dataset = dataset_result.scalar_one_or_none()
+        if not dataset or not dataset.gcs_path:
+            raise RuntimeError("Dataset is missing or has no storage path for sharding")
+
+        dataset_format = str(config.get("dataset_format") or dataset.format or "").lower()
+        num_shards = _get_int(config.get("num_shards"), 10)
+        shard_strategy = str(config.get("shard_strategy", "stratified"))
+        batch_size = _get_int(config.get("batch_size"), 32)
+        dataset_path = str(dataset.gcs_path)
+        if dataset_path and not dataset_path.endswith("/"):
+            dataset_path = f"{dataset_path}/"
+
+        try:
+            sharder = DatasetSharderClient()
+            shard_response = await sharder.shard_dataset(
+                dataset_sharder_pb2.ShardDatasetRequest(
+                    dataset_id=str(job.dataset_id),
+                    job_id=str(job.id),
+                    model_id=str(job.model_id or ""),
+                    dataset_path=dataset_path,
+                    format=dataset_format,
+                    num_shards=num_shards,
+                    strategy=shard_strategy,
+                    batch_size=batch_size,
+                    seed=42,
+                )
+            )
+            if not shard_response.success:
+                raise RuntimeError(shard_response.message or "Dataset sharding failed")
+            logger.info(
+                "Sharding completed for job %s: dataset=%s batches=%s",
+                job.id,
+                job.dataset_id,
+                shard_response.total_batches,
+            )
+        except Exception as e:
+            logger.exception("Failed to trigger dataset sharding for job %s: %s", job.id, e)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to trigger dataset sharding: {e}",
+            )
+
+        try:
+            orchestrator = TaskOrchestratorClient()
+            response = await orchestrator.initiate_training(submission)
+            if not response.success:
+                raise RuntimeError(response.message or "submission failed")
+        except Exception as e:
+            logger.exception("Failed to submit job %s to Task Orchestrator: %s", job.id, e)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to submit job to Task Orchestrator: {e}",
+            )
 
         logger.info(f"Job submitted to Task Orchestrator: {job.id}")
         return job
-    except Exception as e:
-        logger.error(f"Failed to submit job to Task Orchestrator: {e}")
+    except HTTPException as http_exc:
         job.status = "failed"
-        job.error_message = f"Task Orchestrator submission failed: {e}"
+        detail = getattr(http_exc, "detail", None)
+        job.error_message = str(detail or "Job submission failed")[:1000]
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.exception("Failed to persist failed job status for job %s", job.id)
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to submit job to internal services: {e}")
+        job.status = "failed"
+        job.error_message = f"Job submission failed: {e}"
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to submit job to Task Orchestrator",
+            detail=f"Failed to submit job: {e}",
         )
 
 

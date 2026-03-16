@@ -19,11 +19,6 @@ service TaskOrchestrator {
   // Bi-directional streaming for live control plane
   rpc StreamTasks(stream WorkerStreamRequest) returns (stream OrchestratorStreamResponse);
   
-  // Worker reports batch completion
-  rpc ReportBatchComplete(BatchCompletion) returns (BatchAck);
-  
-  // Worker reports batch failure
-  rpc ReportBatchFailed(BatchFailure) returns (BatchAck);
 }
 
 // Job priority levels
