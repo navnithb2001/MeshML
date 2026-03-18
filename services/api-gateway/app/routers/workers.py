@@ -13,8 +13,9 @@ Endpoints:
 import logging
 import uuid
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
+from app.models.group import GroupMember
 from app.models.worker import Worker
 from app.schemas.worker import (
     WorkerRegisterRequest,
@@ -90,18 +91,24 @@ async def register_worker(request: WorkerRegisterRequest, db: AsyncSession = Dep
 
 
 @router.get("", response_model=List[WorkerResponse])
-async def list_workers(status: str = None, db: AsyncSession = Depends(get_db)):
+async def list_workers(status: Optional[str] = None, group_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """
     List all registered workers
 
     Args:
         status: Filter by status (idle/training/offline)
+        group_id: Filter by group ID
         db: Database session
 
     Returns:
         List of workers
     """
     query = select(Worker)
+
+    if group_id:
+        query = query.join(
+            GroupMember, GroupMember.worker_id == Worker.worker_id
+        ).where(GroupMember.group_id == group_id)
 
     if status:
         query = query.where(Worker.status == status)

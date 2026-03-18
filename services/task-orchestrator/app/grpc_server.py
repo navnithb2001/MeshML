@@ -246,6 +246,44 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 tags={"device_type": request.device_type},
             )
 
+            # Sync with database
+            try:
+                async with AsyncSessionLocal() as session:
+                    result = await session.execute(
+                        text("SELECT 1 FROM workers WHERE worker_id = :worker_id"),
+                        {"worker_id": worker_id}
+                    )
+                    exists = result.scalar()
+                    logger.info("Worker DB sync: exists=%s for %s", exists, worker_id)
+                    if not exists:
+                        logger.info("Inserting new worker %s into DB", worker_id)
+                        await session.execute(
+                            text("""
+                                INSERT INTO workers (id, worker_id, user_email, capabilities, status, last_heartbeat, created_at, updated_at)
+                                VALUES (gen_random_uuid(), :worker_id, :user_email, :caps, 'idle', NOW(), NOW(), NOW())
+                                ON CONFLICT (worker_id) DO NOTHING
+                            """),
+                            {
+                                "worker_id": worker_id, 
+                                "user_email": getattr(request, "user_id", "") or "unknown", 
+                                "caps": json.dumps(capabilities.to_dict())
+                            }
+                        )
+                    else:
+                        logger.info("Updating existing worker %s in DB", worker_id)
+                        await session.execute(
+                            text("""
+                                UPDATE workers 
+                                SET status = 'idle', capabilities = :caps, last_heartbeat = NOW(), updated_at = NOW() 
+                                WHERE worker_id = :worker_id
+                            """),
+                            {"worker_id": worker_id, "caps": json.dumps(capabilities.to_dict())}
+                        )
+                    await session.commit()
+                    logger.info("DB commit successful for worker %s", worker_id)
+            except Exception as dberr:
+                logger.error("Failed to sync worker registration to DB: %s", dberr, exc_info=True)
+
             return task_orchestrator_pb2.WorkerRegistration(
                 worker_id=worker_id,
                 groups=groups or [group_id],
@@ -258,6 +296,17 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
     async def SendHeartbeat(self, request, context):
         try:
             success = self.worker_registry.update_heartbeat(request.worker_id, request.status)
+            
+            if success:
+                try:
+                    async with AsyncSessionLocal() as session:
+                        await session.execute(
+                            text("UPDATE workers SET status = :status, last_heartbeat = NOW(), updated_at = NOW() WHERE worker_id = :worker_id"),
+                            {"status": request.status or "idle", "worker_id": request.worker_id}
+                        )
+                        await session.commit()
+                except Exception as dberr:
+                    logger.warning("Failed to sync worker heartbeat to DB: %s", dberr)
             return task_orchestrator_pb2.HeartbeatAck(
                 success=success,
                 message="ok" if success else "worker not found",
@@ -366,6 +415,18 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                                 success = self.worker_registry.update_heartbeat(
                                     worker_id, request.heartbeat.status
                                 )
+                                
+                                if success:
+                                    try:
+                                        async with AsyncSessionLocal() as session:
+                                            result = await session.execute(
+                                                text("UPDATE workers SET status = :status, last_heartbeat = NOW(), updated_at = NOW() WHERE worker_id = :worker_id"),
+                                                {"status": request.heartbeat.status or "idle", "worker_id": worker_id}
+                                            )
+                                            logger.info("Stream heartbeat DB update for %s: rows matched=%s", worker_id, result.rowcount)
+                                            await session.commit()
+                                    except Exception as dberr:
+                                        logger.error("Failed to sync stream heartbeat to DB: %s", dberr, exc_info=True)
                                 await outbound.put(
                                     task_orchestrator_pb2.OrchestratorStreamResponse(
                                         worker_id=worker_id,
@@ -528,12 +589,28 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
     async def _handle_disconnect(self, worker_id: str):
         batch_id = self.stream_manager.get_assigned_batch(worker_id)
         if batch_id:
+            try:
+                async with AsyncSessionLocal() as session:
+                    batch = await session.get(DataBatch, batch_id)
+                    if batch and batch.status == "ASSIGNED":
+                        batch.status = "AVAILABLE"
+                        batch.assigned_worker_id = None
+                        await session.commit()
+            except Exception as e:
+                logger.error("Error unassigning batch %s on disconnect: %s", batch_id, e)
+                
+        # Mark worker as offline in DB
+        try:
             async with AsyncSessionLocal() as session:
-                batch = await session.get(DataBatch, batch_id)
-                if batch and batch.status == "ASSIGNED":
-                    batch.status = "AVAILABLE"
-                    batch.assigned_worker_id = None
-                    await session.commit()
+                await session.execute(
+                    text("UPDATE workers SET status = 'offline', updated_at = NOW() WHERE worker_id = :worker_id"),
+                    {"worker_id": worker_id}
+                )
+                await session.commit()
+                logger.info("Worker %s marked as offline in DB", worker_id)
+        except Exception as e:
+            logger.error("Failed to mark worker %s offline in DB: %s", worker_id, e)
+            
         self.stream_manager.unregister(worker_id)
 
     def _increment_batch_failure(self, job_id: str, batch_id: str) -> int:
@@ -573,18 +650,35 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             except Exception:
                 artifact_uri = None
 
-        await session.execute(
-            text(
-                "UPDATE jobs "
-                "SET status = 'COMPLETED', completed_at = NOW(), "
-                "config = jsonb_set(COALESCE(config, '{}'::jsonb), '{model_artifact_uri}', to_jsonb(:uri), true) "
-                "WHERE id::text = :job_id"
-            ),
-            {
-                "job_id": job_id,
-                "uri": artifact_uri,
-            },
-        )
+        if artifact_uri:
+            await session.execute(
+                text(
+                    "UPDATE jobs "
+                    "SET status = 'completed', completed_at = NOW(), "
+                    "config = ("
+                    "  jsonb_set("
+                    "    COALESCE(config::jsonb, '{}'::jsonb), "
+                    "  '{model_artifact_uri}', "
+                    "  to_jsonb(CAST(:uri AS text)), "
+                    "  true"
+                    "  )::json"
+                    ") "
+                    "WHERE id::text = :job_id"
+                ),
+                {
+                    "job_id": job_id,
+                    "uri": artifact_uri,
+                },
+            )
+        else:
+            await session.execute(
+                text(
+                    "UPDATE jobs "
+                    "SET status = 'completed', completed_at = NOW() "
+                    "WHERE id::text = :job_id"
+                ),
+                {"job_id": job_id},
+            )
         await session.commit()
 
         if self.metrics_client:
@@ -594,7 +688,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         await session.execute(
             text(
                 "UPDATE jobs "
-                "SET status = 'FAILED', error_message = :message, completed_at = NOW() "
+                "SET status = 'failed', error_message = :message, completed_at = NOW() "
                 "WHERE id::text = :job_id"
             ),
             {
@@ -619,9 +713,11 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         await session.execute(
             text(
                 "UPDATE jobs "
-                "SET progress = jsonb_set("
-                "  jsonb_set(COALESCE(progress, '{}'::jsonb), '{current_batch}', to_jsonb(:completed), true),"
-                "  '{total_batches}', to_jsonb(:total), true"
+                "SET progress = ("
+                "  jsonb_set("
+                "    jsonb_set(COALESCE(progress::jsonb, '{}'::jsonb), '{current_batch}', to_jsonb(CAST(:completed AS integer)), true),"
+                "    '{total_batches}', to_jsonb(CAST(:total AS integer)), true"
+                "  )::json"
                 ") "
                 "WHERE id::text = :job_id"
             ),

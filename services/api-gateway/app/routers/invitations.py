@@ -15,6 +15,7 @@ from typing import Optional
 
 from app.models.group import Group, GroupInvitation, GroupMember
 from app.models.user import User
+from app.models.worker import Worker
 from app.routers.auth import get_current_user
 from app.schemas.invitation import (
     AcceptInvitationRequest,
@@ -190,6 +191,18 @@ async def accept_invitation(
     )
 
     db.add(member)
+
+    # Ensure worker exists in workers table as a placeholder if not already registered
+    worker_result = await db.execute(select(Worker).where(Worker.worker_id == request.worker_id))
+    worker = worker_result.scalar_one_or_none()
+
+    if not worker:
+        worker = Worker(
+            worker_id=request.worker_id,
+            user_email=current_user.email,
+            status="offline",
+        )
+        db.add(worker)
 
     # Increment usage count
     invitation.current_uses += 1

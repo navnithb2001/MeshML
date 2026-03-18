@@ -77,6 +77,21 @@ async def create_job(
         dataset = dataset_result.scalar_one_or_none()
         if dataset and "dataset_format" not in job_config:
             job_config["dataset_format"] = dataset.format
+    final_version = (job_config or {}).get("final_version")
+    if final_version is not None:
+        try:
+            final_version_int = int(final_version)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="final_version must be an integer greater than 0.",
+            )
+        if final_version_int <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="final_version must be greater than 0.",
+            )
+        job_config["final_version"] = final_version_int
 
     job = Job(
         id=str(uuid.uuid4()),
@@ -175,6 +190,8 @@ async def create_job(
 
         dataset_format = str(config.get("dataset_format") or dataset.format or "").lower()
         num_shards = _get_int(config.get("num_shards"), 10)
+        if dataset.num_samples and dataset.num_samples > 0:
+            num_shards = max(1, min(num_shards, int(dataset.num_samples)))
         shard_strategy = str(config.get("shard_strategy", "stratified"))
         batch_size = _get_int(config.get("batch_size"), 32)
         dataset_path = str(dataset.gcs_path)
@@ -206,9 +223,15 @@ async def create_job(
             )
         except Exception as e:
             logger.exception("Failed to trigger dataset sharding for job %s: %s", job.id, e)
+            err_message = str(e)
+            if "num_shards" in err_message and "exceeds total samples" in err_message:
+                err_message = (
+                    "Dataset is too small for current shard count. "
+                    "Reduce num_shards in job config or upload a larger dataset."
+                )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to trigger dataset sharding: {e}",
+                detail=f"Failed to trigger dataset sharding: {err_message}",
             )
 
         try:

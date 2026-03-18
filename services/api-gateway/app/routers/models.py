@@ -4,6 +4,7 @@ Model upload endpoints for API Gateway.
 Implements user-facing model upload and registry registration.
 """
 
+import ast
 import hashlib
 import logging
 import os
@@ -18,6 +19,47 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _validate_model_python_source(content: bytes) -> None:
+    """Basic static checks for uploaded model source."""
+    try:
+        source = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Model file must be UTF-8 encoded Python source.",
+        )
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Python syntax error at line {exc.lineno}: {exc.msg}",
+        )
+
+    has_create_model = False
+    has_model_metadata = False
+
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "create_model":
+            has_create_model = True
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "MODEL_METADATA":
+                    has_model_metadata = True
+
+    if not has_create_model:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Model code must define create_model().",
+        )
+    if not has_model_metadata:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Model code must define MODEL_METADATA.",
+        )
 
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
@@ -45,6 +87,7 @@ async def upload_model(
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
+    _validate_model_python_source(content)
 
     file_hash = hashlib.sha256(content).hexdigest()
     file_size = len(content)

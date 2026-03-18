@@ -25,10 +25,12 @@ from app.schemas.group import (
     GroupResponse,
     JoinGroupRequest,
     UpdateMemberRoleRequest,
+    GroupUpdateRequest,
 )
 from app.utils.database import get_db
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -295,15 +297,19 @@ async def list_group_members(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this group"
         )
 
-    # Get all members
-    result = await db.execute(select(GroupMember).where(GroupMember.group_id == group_id))
+    # Get all members with simple join
+    result = await db.execute(
+        select(GroupMember)
+        .options(joinedload(GroupMember.user))
+        .where(GroupMember.group_id == group_id)
+    )
     members = result.scalars().all()
 
     logger.info(f"Retrieved {len(members)} members for group {group_id}")
     return members
 
 
-@router.put("/{group_id}/members/{user_id}/role", response_model=GroupMemberResponse)
+@router.put("/{group_id}/members/{user_id}/role")
 async def update_member_role(
     group_id: str,
     user_id: str,
@@ -313,20 +319,6 @@ async def update_member_role(
 ):
     """
     Update member role (owner/admin/member)
-
-    Args:
-        group_id: Group ID
-        user_id: User ID to update
-        request: New role
-        db: Database session
-        current_user: Authenticated user
-
-    Returns:
-        Updated member information
-
-    Raises:
-        403: Not authorized (only owner/admin)
-        404: Member not found
     """
     # Check if current user is owner/admin
     current_member_result = await db.execute(
@@ -353,10 +345,9 @@ async def update_member_role(
     # Update role
     target_member.role = request.role
     await db.commit()
-    await db.refresh(target_member)
 
     logger.info(f"Updated role for user {user_id} in group {group_id}")
-    return target_member
+    return {"status": "ok", "role": request.role}
 
 
 @router.delete("/{group_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -414,3 +405,104 @@ async def remove_member(
     await db.commit()
 
     logger.info(f"Removed user {user_id} from group {group_id}")
+
+
+@router.put("/{group_id}", response_model=GroupResponse)
+async def update_group(
+    group_id: str,
+    request: GroupUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update group details
+
+    Args:
+        group_id: Group ID
+        request: Updated group data
+        db: Database session
+        current_user: Authenticated user
+
+    Returns:
+        Updated group information
+
+    Raises:
+        404: Group not found
+        403: Not authorized (only owner or admin can update)
+    """
+    # Check if current user is owner/admin
+    current_member_result = await db.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == group_id, GroupMember.user_id == current_user.id
+        )
+    )
+    current_member = current_member_result.scalar_one_or_none()
+
+    if not current_member or current_member.role not in ["owner", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only owners and admins can update group details"
+        )
+
+    # Get group
+    result = await db.execute(select(Group).where(Group.id == group_id))
+    group = result.scalar_one_or_none()
+
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+
+    # Update group fields
+    if request.name is not None:
+        group.name = request.name
+    if request.description is not None:
+        group.description = request.description
+    if request.is_public is not None:
+        group.is_public = request.is_public
+
+    await db.commit()
+    await db.refresh(group)
+
+    logger.info(f"Group updated: {group.id} by user {current_user.id}")
+    return group
+
+
+@router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_group(
+    group_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete a group. Only the group owner can delete it.
+    """
+    # Check if current user is owner
+    current_member_result = await db.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == group_id, GroupMember.user_id == current_user.id
+        )
+    )
+    current_member = current_member_result.scalar_one_or_none()
+
+    if not current_member or current_member.role != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only the group owner can delete this group"
+        )
+
+    # Get group
+    result = await db.execute(select(Group).where(Group.id == group_id))
+    group = result.scalar_one_or_none()
+
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+
+    # Delete all members first
+    members_result = await db.execute(
+        select(GroupMember).where(GroupMember.group_id == group_id)
+    )
+    for member in members_result.scalars().all():
+        await db.delete(member)
+
+    # Delete the group
+    await db.delete(group)
+    await db.commit()
+
+    logger.info(f"Group {group_id} deleted by user {current_user.id}")
