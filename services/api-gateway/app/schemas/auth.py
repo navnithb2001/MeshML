@@ -41,3 +41,10 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
+
+
+class UserChangePasswordRequest(BaseModel):
+    """Request to change password"""
+
+    old_password: str
+    new_password: str = Field(..., min_length=8)

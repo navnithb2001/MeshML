@@ -101,7 +101,7 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
     }
 
     if (!datasetFile) {
-      setStep(2); // allow skipping
+      toast.warning('Select a dataset file before continuing.');
       return;
     }
     setLoading(true);
@@ -123,7 +123,7 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
       return;
     }
     if (!modelFile) {
-      setStep(3); // allow skipping
+      toast.warning('Upload a model file before continuing.');
       return;
     }
     if (!modelName.trim()) {
@@ -271,8 +271,10 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
                 ) : (
                   <>
                     <UploadCloud className="w-8 h-8 text-slate-400 group-hover:text-cyan-500 mb-4 transition-colors" />
-                    <p className="text-sm font-medium text-slate-900 dark:text-slate-50">Drag & drop dataset here (.zip)</p>
-                    <p className="text-xs text-slate-500 font-mono mt-2">POST /api/datasets/upload</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-50">Drag & drop dataset here</p>
+                    <p className="text-xs text-slate-500 font-mono mt-2">
+                      Supported: .zip, imagefolder, csv, coco (auto-detected)
+                    </p>
                   </>
                 )}
               </div>
@@ -337,7 +339,6 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
                   <>
                     <Code className="w-8 h-8 text-slate-400 group-hover:text-cyan-500 mb-4 transition-colors" />
                     <p className="text-sm font-medium text-slate-900 dark:text-slate-50">Drag & drop model code here (.py)</p>
-                    <p className="text-xs text-slate-500 font-mono mt-2">POST /api/models/register</p>
                   </>
                 )}
               </div>

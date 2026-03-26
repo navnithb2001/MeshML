@@ -92,6 +92,11 @@ class Trainer:
         self.criterion: Optional[nn.Module] = None
         self.scaler: Optional[GradScaler] = None
 
+        # Runtime task config (from MODEL_METADATA)
+        self.task_type: str = "classification"  # default until model is loaded
+        self.loss_name: str = "cross_entropy"
+        self.metric_names: list = ["accuracy"]
+
         # Data
         self.train_loader: Optional[Any] = None
         self.val_loader: Optional[Any] = None
@@ -206,102 +211,174 @@ class Trainer:
                 await self.metrics_client.close()
             self._cleanup()
 
+    def _compute_metrics(self, output: torch.Tensor, target: torch.Tensor) -> dict:
+        """
+        Metric Factory — compute requested metrics based on task_type and metric_names.
+
+        Returns:
+            dict of metric_name -> float value
+        """
+        results: dict = {}
+
+        for metric in self.metric_names:
+            try:
+                if metric == "accuracy":
+                    if self.task_type == "classification":
+                        _, predicted = torch.max(output, 1)
+                        results["accuracy"] = 100.0 * (predicted == target.long()).float().mean().item()
+                    elif self.task_type == "binary":
+                        predicted = (torch.sigmoid(output.squeeze()) > 0.5).float()
+                        results["accuracy"] = 100.0 * (predicted == target.squeeze()).float().mean().item()
+                    else:
+                        results["accuracy"] = 0.0  # not meaningful for regression
+                elif metric == "mae":
+                    results["mae"] = torch.mean(torch.abs(output.squeeze() - target.squeeze())).item()
+                elif metric == "mse":
+                    results["mse"] = torch.mean((output.squeeze() - target.squeeze()) ** 2).item()
+                else:
+                    logger.debug(f"Unknown metric '{metric}', skipping.")
+            except Exception as e:
+                logger.warning(f"Failed computing metric '{metric}': {e}")
+
+        return results
+
+    def _prepare_batch(
+        self, raw_data: Any, raw_target: Any
+    ) -> tuple:
+        """
+        Generalized batch parsing: handle (data, target) tuples, dicts, or Tensors.
+        Casts targets to the correct dtype for the current task.
+
+        Returns:
+            (data_tensor, target_tensor)
+        """
+        # Handle dict-style batches
+        if isinstance(raw_data, dict):
+            data = raw_data.get("input", raw_data.get("data", next(iter(raw_data.values()))))
+        else:
+            data = raw_data
+
+        if isinstance(raw_target, dict):
+            target = raw_target.get("label", raw_target.get("target", next(iter(raw_target.values()))))
+        else:
+            target = raw_target
+
+        data = torch.as_tensor(data, dtype=torch.float32).to(self.device)
+
+        # Cast target dtype based on task
+        if self.task_type in ("regression", "binary"):
+            target = torch.as_tensor(target, dtype=torch.float32).to(self.device)
+        else:
+            target = torch.as_tensor(target, dtype=torch.long).to(self.device)
+
+        return data, target
+
+    def _apply_output_transform(self, output: torch.Tensor, target: torch.Tensor) -> tuple:
+        """
+        Per-task output/target adjustment before loss computation.
+        - regression/binary: squeeze output to 1D, ensure target is 1D float
+        - classification: leave as-is
+        """
+        if self.task_type in ("regression", "binary"):
+            output = output.squeeze(-1)
+            target = target.squeeze(-1)
+        return output, target
+
     async def _train_epoch_with_reporting(
         self, epoch: int, job_id: str, batch_ids: List[str]
     ) -> tuple:
-        """Train one epoch with batch-level progress reporting to Task Orchestrator
-
-        Args:
-            epoch: Current epoch number
-            job_id: Job ID
-            batch_ids: List of batch IDs assigned to this worker
-
-        Returns:
-            Tuple of (average_loss, metrics_dict)
-        """
+        """Train one epoch with batch-level progress reporting to Task Orchestrator"""
         if self.model is None or self.train_loader is None:
             raise RuntimeError("Model or data not loaded")
 
         self.model.train()
         epoch_loss = 0.0
-        correct = 0
-        total = 0
         batch_count = 0
 
-        # Track which batch ID we're processing
-        current_batch_idx = 0
+        # Accumulate metrics across batches
+        epoch_metric_sums: dict = {m: 0.0 for m in self.metric_names}
+
         batches_per_shard = (
             len(self.train_loader) // len(batch_ids) if batch_ids else len(self.train_loader)
         )
+        current_batch_idx = 0
 
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch + 1}")
 
-        for batch_idx, (data, target) in enumerate(pbar):
+        for batch_idx, batch in enumerate(pbar):
             if self.pause_event:
                 while self.pause_event.is_set():
                     await asyncio.sleep(1.0)
-            # Move data to device
-            data = data.to(self.device)
-            target = target.to(self.device)
 
-            # Zero gradients
+            # Generalized batch unpacking
+            if isinstance(batch, (list, tuple)) and len(batch) == 2:
+                raw_data, raw_target = batch
+            elif isinstance(batch, dict):
+                keys = list(batch.keys())
+                raw_data, raw_target = batch[keys[0]], batch[keys[1]]
+            else:
+                logger.warning(f"Unexpected batch type: {type(batch)}, skipping.")
+                continue
+
+            data, target = self._prepare_batch(raw_data, raw_target)
+
             self.optimizer.zero_grad()
 
-            # Forward pass
             if self.scaler:
-                # Mixed precision training
                 with autocast():
                     output = self.model(data)
-                    loss = self.criterion(output, target)
-
+                    output, target_for_loss = self._apply_output_transform(output, target)
+                    loss = self.criterion(output, target_for_loss)
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                # Regular training
                 output = self.model(data)
-                loss = self.criterion(output, target)
+                output, target_for_loss = self._apply_output_transform(output, target)
+                loss = self.criterion(output, target_for_loss)
                 loss.backward()
                 self.optimizer.step()
 
-            # Keep Parameter Server state moving in orchestrated mode as batches are processed.
             self._push_gradients(batch_idx=batch_idx, epoch=epoch, loss=loss.item())
 
-            # Update metrics
-            epoch_loss += loss.item()
-            _, predicted = torch.max(output.data, 1)
-            total += target.size(0)
-            correct += (predicted == target).sum().item()
-            batch_count += 1
-            batch_accuracy = 100.0 * (predicted == target).sum().item() / target.size(0)
+            # Metric computation
+            with torch.no_grad():
+                batch_metrics = self._compute_metrics(output, target_for_loss)
 
-            # Update progress bar
+            epoch_loss += loss.item()
+            batch_count += 1
+            for m, val in batch_metrics.items():
+                epoch_metric_sums[m] = epoch_metric_sums.get(m, 0.0) + val
+
+            # Progress bar
             avg_loss = epoch_loss / batch_count
-            accuracy = 100.0 * correct / total
-            pbar.set_postfix({"loss": f"{avg_loss:.4f}", "acc": f"{accuracy:.2f}%"})
+            postfix = {"loss": f"{avg_loss:.4f}"}
+            if "accuracy" in batch_metrics:
+                postfix["acc"] = f"{batch_metrics['accuracy']:.2f}%"
+            elif "mae" in batch_metrics:
+                postfix["mae"] = f"{batch_metrics['mae']:.4f}"
+            pbar.set_postfix(postfix)
 
             self.current_iteration += 1
             if self.metrics_client:
                 await self.metrics_client.send(
                     step=self.current_iteration,
                     loss=loss.item(),
-                    accuracy=batch_accuracy,
+                    accuracy=batch_metrics.get("accuracy", 0.0),
                     timestamp_ms=int(time.time() * 1000),
                 )
 
-            # Keep shard accounting aligned for stream-level TaskResult reporting.
-            if batch_ids and (batch_idx + 1) % batches_per_shard == 0 and current_batch_idx < len(
-                batch_ids
-            ):
+            if batch_ids and (batch_idx + 1) % batches_per_shard == 0 and current_batch_idx < len(batch_ids):
                 current_batch_idx += 1
 
-        # Calculate final metrics
         avg_loss = epoch_loss / batch_count if batch_count > 0 else 0
-        accuracy = 100.0 * correct / total if total > 0 else 0
+        avg_metrics = {
+            m: epoch_metric_sums.get(m, 0.0) / batch_count
+            for m in self.metric_names
+            if batch_count > 0
+        }
 
-        metrics = {"accuracy": accuracy, "correct": correct, "total": total}
-
-        return avg_loss, metrics
+        return avg_loss, avg_metrics
 
     def _initialize_training_minimal(self, model_id: str) -> None:
         """Initialize training components for orchestrated mode (minimal version)
@@ -384,10 +461,25 @@ class Trainer:
         self.model = self.model.to(self.device)  # Ensure model is on correct device
         self.create_dataloader_fn = create_dataloader
 
-        # Initialize criterion (cross-entropy for classification)
-        self.criterion = nn.CrossEntropyLoss()
+        # ── Loss Factory based on MODEL_METADATA ─────────────────────────────
+        self.task_type = str(metadata.get("task_type", "classification"))
+        self.loss_name = str(metadata.get("loss", "cross_entropy"))
+        self.metric_names = list(metadata.get("metrics", ["accuracy"]))
 
-        logger.info(f"Model loaded: {metadata['name']} v{metadata['version']}")
+        _LOSS_FACTORY: dict = {
+            "cross_entropy": nn.CrossEntropyLoss,
+            "mse": nn.MSELoss,
+            "mae": nn.L1Loss,
+            "bce_with_logits": nn.BCEWithLogitsLoss,
+            "bce": nn.BCELoss,
+        }
+        criterion_cls = _LOSS_FACTORY.get(self.loss_name, nn.CrossEntropyLoss)
+        self.criterion = criterion_cls()
+
+        logger.info(
+            f"Model loaded: {metadata['name']} v{metadata['version']} "
+            f"| task={self.task_type} loss={self.loss_name} metrics={self.metric_names}"
+        )
 
     def _create_dataloader_from_shards(
         self, shard_paths: List[Path], batch_size: int, num_workers: int
@@ -408,6 +500,9 @@ class Trainer:
 
         logger.info(f"Creating DataLoader from {len(shard_paths)} shards")
 
+        # Label dtype: long for classification, float for regression/binary
+        is_float_target = self.task_type in ("regression", "binary")
+
         # Preferred path: load pre-downloaded serialized batch payloads.
         shard_datasets = []
         for shard_path in shard_paths:
@@ -418,8 +513,6 @@ class Trainer:
                     try:
                         payload = pickle.loads(batch_bytes)
                     except ModuleNotFoundError:
-                        # Dataset-sharder pickles DataSample as app.services.dataset_loader.DataSample.
-                        # Worker runtime does not have that module path, so remap during unpickle.
                         class _DataSampleCompat:
                             def __init__(self, data, label, metadata, sample_id):
                                 self.data = data
@@ -453,12 +546,14 @@ class Trainer:
                         elif x.ndim == 2:
                             x = x.unsqueeze(0)
                         xs.append(x)
-                        ys.append(int(sample_label))
+                        ys.append(float(sample_label) if is_float_target else int(sample_label))
 
-                    dataset = TensorDataset(torch.stack(xs), torch.tensor(ys, dtype=torch.long))
+                    label_dtype = torch.float32 if is_float_target else torch.long
+                    dataset = TensorDataset(torch.stack(xs), torch.tensor(ys, dtype=label_dtype))
                     shard_datasets.append(dataset)
                     logger.debug(
-                        f"Loaded serialized shard from {batch_file}: {len(dataset)} samples"
+                        f"Loaded serialized shard from {batch_file}: {len(dataset)} samples "
+                        f"(label_dtype={label_dtype})"
                     )
                     continue
             except Exception as e:
@@ -481,12 +576,9 @@ class Trainer:
         if not shard_datasets:
             raise ValueError("No valid shards could be loaded from serialized batches or imagefolders")
 
-        # Combine all shards into one dataset
         combined_dataset = ConcatDataset(shard_datasets)
-
         logger.info(f"Combined dataset: {len(combined_dataset)} total samples")
 
-        # Create DataLoader
         dataloader = DataLoader(
             combined_dataset,
             batch_size=batch_size,

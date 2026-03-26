@@ -8,7 +8,7 @@ import ast
 import hashlib
 import logging
 import os
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import httpx
 from app.clients.model_registry_client import ModelRegistryClient
@@ -20,9 +20,22 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# ─── Supported contract values ───────────────────────────────────────────────
 
-def _validate_model_python_source(content: bytes) -> None:
-    """Basic static checks for uploaded model source."""
+SUPPORTED_TASK_TYPES = {"classification", "regression", "binary"}
+SUPPORTED_LOSSES = {"cross_entropy", "mse", "mae", "bce_with_logits", "bce"}
+
+
+def _validate_model_python_source(content: bytes) -> Dict[str, Any]:
+    """
+    Static checks for uploaded model source.
+
+    Returns:
+        Extracted MODEL_METADATA dict (after validation).
+
+    Raises:
+        HTTPException 422 on any validation failure with a clear message.
+    """
     try:
         source = content.decode("utf-8")
     except UnicodeDecodeError:
@@ -40,7 +53,7 @@ def _validate_model_python_source(content: bytes) -> None:
         )
 
     has_create_model = False
-    has_model_metadata = False
+    metadata_node: Optional[ast.Assign] = None
 
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == "create_model":
@@ -48,18 +61,96 @@ def _validate_model_python_source(content: bytes) -> None:
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id == "MODEL_METADATA":
-                    has_model_metadata = True
+                    metadata_node = node
 
     if not has_create_model:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Model code must define create_model().",
         )
-    if not has_model_metadata:
+    if metadata_node is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Model code must define MODEL_METADATA.",
         )
+
+    # ── Statically evaluate MODEL_METADATA ───────────────────────────────────
+    try:
+        metadata: Dict[str, Any] = ast.literal_eval(metadata_node.value)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "MODEL_METADATA must be a plain Python dict literal "
+                "(no function calls or variables)."
+            ),
+        )
+
+    if not isinstance(metadata, dict):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="MODEL_METADATA must be a dict.",
+        )
+
+    # ── Validate existing base fields ─────────────────────────────────────────
+    base_required = ["name", "version", "framework", "input_shape", "output_shape"]
+    missing_base = [f for f in base_required if f not in metadata]
+    if missing_base:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"MODEL_METADATA missing required base fields: {missing_base}",
+        )
+
+    # ── Validate new contract fields ──────────────────────────────────────────
+    contract_required = ["task_type", "loss", "metrics"]
+    missing_contract = [f for f in contract_required if f not in metadata]
+    if missing_contract:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"MODEL_METADATA missing required contract fields: {missing_contract}. "
+                f"These must be defined in your model.py — the model dictates the math."
+            ),
+        )
+
+    task_type = metadata["task_type"]
+    loss = metadata["loss"]
+    metrics = metadata["metrics"]
+
+    if task_type not in SUPPORTED_TASK_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"MODEL_METADATA.task_type '{task_type}' is not supported. "
+                f"Supported values: {sorted(SUPPORTED_TASK_TYPES)}"
+            ),
+        )
+
+    if loss not in SUPPORTED_LOSSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"MODEL_METADATA.loss '{loss}' is not supported. "
+                f"Supported values: {sorted(SUPPORTED_LOSSES)}"
+            ),
+        )
+
+    if not isinstance(metrics, list) or len(metrics) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="MODEL_METADATA.metrics must be a non-empty list of strings.",
+        )
+    invalid_metrics = [m for m in metrics if not isinstance(m, str)]
+    if invalid_metrics:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"MODEL_METADATA.metrics entries must be strings, got: {invalid_metrics}",
+        )
+
+    logger.info(
+        f"Model metadata validated: task_type={task_type}, loss={loss}, metrics={metrics}"
+    )
+    return metadata
 
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
@@ -77,9 +168,10 @@ async def upload_model(
     Upload model.py via API Gateway.
 
     Flow:
-    1. Register model in Model Registry (gRPC)
-    2. Upload file to signed URL (HTTP PUT)
-    3. Finalize upload (gRPC)
+    1. Static validation of MODEL_METADATA contract
+    2. Register model in Model Registry (gRPC), passing task_type via metadata
+    3. Upload file to signed URL (HTTP PUT)
+    4. Finalize upload (gRPC)
     """
     if file.filename is None:
         raise HTTPException(status_code=400, detail="Missing filename")
@@ -87,10 +179,21 @@ async def upload_model(
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
-    _validate_model_python_source(content)
+
+    # Validate and extract MODEL_METADATA
+    model_metadata = _validate_model_python_source(content)
 
     file_hash = hashlib.sha256(content).hexdigest()
     file_size = len(content)
+
+    # Build the metadata map to pass to Model Registry — store contract fields
+    registry_metadata = {
+        "task_type": str(model_metadata.get("task_type", "")),
+        "loss": str(model_metadata.get("loss", "")),
+        "metrics": ",".join(model_metadata.get("metrics", [])),
+    }
+    # Use task_type as architecture_type if not provided explicitly
+    effective_arch = architecture_type or str(model_metadata.get("task_type", ""))
 
     client = ModelRegistryClient()
     try:
@@ -100,10 +203,10 @@ async def upload_model(
                 description=description or "",
                 group_id=group_id,
                 created_by_user_id=str(current_user.id),
-                architecture_type=architecture_type or "",
+                architecture_type=effective_arch,
                 dataset_type=dataset_type or "",
                 version=version or "1.0.0",
-                metadata={},
+                metadata=registry_metadata,
             )
         )
     except Exception as e:
@@ -143,7 +246,12 @@ async def upload_model(
         "gcs_path": registration.gcs_path,
         "file_size_bytes": file_size,
         "file_hash": file_hash,
+        "task_type": model_metadata.get("task_type"),
+        "loss": model_metadata.get("loss"),
+        "metrics": model_metadata.get("metrics"),
     }
+
+
 
 
 @router.get("/{model_id}/download")

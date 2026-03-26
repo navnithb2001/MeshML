@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Download, HardDrive } from 'lucide-react';
 import { modelsAPI } from '@/lib/api';
 import { useToast } from '@/components/Toast';
+import clsx from 'clsx';
+
 
 interface Model {
   id: string;
@@ -11,15 +13,16 @@ interface Model {
   final_loss: number | null;
   size_bytes: number | null;
   created_at: string;
+  task_type?: string | null; // from MODEL_METADATA, read-only
 }
 
 // Mocked fetcher function
 const fetchModels = async () => {
   // Vault doesn't have a list endpoint exposed in API gateway yet, sticking to mock
   return [
-    { id: 'mdl-abc123x', name: 'GPT-2 FineTuned', version: 'v1.4.2', status: 'COMPLETED', final_loss: 0.142, size_bytes: 483183820, created_at: '2023-10-26T14:30:00Z' },
-    { id: 'mdl-xyz987q', name: 'ResNet50 Hub', version: 'v2.0.0', status: 'COMPLETED', final_loss: 0.089, size_bytes: 102488310, created_at: '2023-10-25T09:15:00Z' },
-    { id: 'mdl-lmn456x', name: 'BERT Base Classification', version: 'v1.0.1', status: 'TRAINING', final_loss: null, size_bytes: null, created_at: '2023-10-27T10:00:00Z' },
+    { id: 'mdl-abc123x', name: 'GPT-2 FineTuned', version: 'v1.4.2', status: 'COMPLETED', final_loss: 0.142, size_bytes: 483183820, created_at: '2023-10-26T14:30:00Z', task_type: 'classification' },
+    { id: 'mdl-xyz987q', name: 'ResNet50 Hub', version: 'v2.0.0', status: 'COMPLETED', final_loss: 0.089, size_bytes: 102488310, created_at: '2023-10-25T09:15:00Z', task_type: 'regression' },
+    { id: 'mdl-lmn456x', name: 'BERT Base Classification', version: 'v1.0.1', status: 'TRAINING', final_loss: null, size_bytes: null, created_at: '2023-10-27T10:00:00Z', task_type: 'binary' },
   ] as Model[];
 };
 
@@ -91,7 +94,22 @@ export default function Vault() {
               models?.map((model) => (
                 <tr key={model.id} className="border-b border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950 transition-colors">
                   <td className="px-6 py-4 font-mono text-slate-900 dark:text-slate-50">{model.id}</td>
-                  <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-medium text-sm">{model.name}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-700 dark:text-slate-300 font-medium text-sm">{model.name}</span>
+                      {model.task_type && (
+                        <span className={clsx(
+                          "text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm",
+                          model.task_type === 'classification' && "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-400",
+                          model.task_type === 'regression' && "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+                          model.task_type === 'binary' && "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400",
+                          !['classification','regression','binary'].includes(model.task_type) && "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
+                        )}>
+                          {model.task_type}
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-mono text-xs">{model.version}</td>
                   <td className="px-6 py-4 text-cyan-600 dark:text-cyan-400 font-mono text-xs">
                     {model.final_loss !== null ? model.final_loss.toFixed(4) : '---'}

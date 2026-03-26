@@ -5,6 +5,7 @@ import { Play, Activity, Settings as SettingsIcon, Users, Key, Save, UserCog, Tr
 import clsx from 'clsx';
 import { jobsAPI, workersAPI, groupsAPI, authAPI, datasetsAPI } from '@/lib/api';
 import SetupModal from '@/components/SetupModal';
+import ConfirmModal from '@/components/ConfirmModal';
 import { useToast } from '@/components/Toast';
 
 export default function GroupDashboard() {
@@ -15,6 +16,11 @@ export default function GroupDashboard() {
   const [isSetupOpen, setIsSetupOpen] = useState(false);
   const [copiedContext, setCopiedContext] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [confirmState, setConfirmState] = useState<
+    | { type: 'deleteDataset'; datasetId: string; datasetName: string }
+    | { type: 'deleteGroup' }
+    | null
+  >(null);
   const queryClient = useQueryClient();
 
   // Queries
@@ -79,26 +85,15 @@ export default function GroupDashboard() {
     }
   });
 
-  const updateRole = useMutation({
-    mutationFn: ({ userId, role }: { userId: string, role: string }) => 
-      groupsAPI.updateMemberRole(groupId!, userId, role),
-    onMutate: async ({ userId, role }) => {
-      await queryClient.cancelQueries({ queryKey: ['groupMembers', groupId] });
-      const previous = queryClient.getQueryData(['groupMembers', groupId]);
-      queryClient.setQueryData(['groupMembers', groupId], (old: any[]) =>
-        old?.map((m: any) => (m.user_id === userId || m.worker_id === userId) ? { ...m, role } : m)
-      );
-      return { previous };
+  const deleteDataset = useMutation({
+    mutationFn: (datasetId: string) => datasetsAPI.deleteDataset(datasetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['datasets', groupId] });
+      toast.success('Dataset deleted.');
     },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(['groupMembers', groupId], context.previous);
-      }
-      toast.error('Failed to update role.');
+    onError: () => {
+      toast.error('Failed to delete dataset.');
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['groupMembers', groupId] });
-    }
   });
 
   if (!groupId) return null;
@@ -261,6 +256,7 @@ export default function GroupDashboard() {
                   <th className="px-6 py-4">Format</th>
                   <th className="px-6 py-4">Status</th>
                   <th className="px-6 py-4">Created Date</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -269,37 +265,50 @@ export default function GroupDashboard() {
                     <td colSpan={5} className="px-6 py-8 text-center text-sm font-mono text-slate-400">Loading datasets...</td>
                   </tr>
                 )}
-                {(!isDatasetsLoading && (!datasets?.datasets || datasets.datasets.length === 0)) && (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-sm font-mono text-slate-500">
-                      No datasets uploaded yet.
-                    </td>
-                  </tr>
-                )}
-                {(datasets?.datasets || []).map((dataset) => (
-                  <tr key={dataset.id} className="border-b border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950 transition-colors">
-                    <td className="px-6 py-4 font-mono text-slate-900 dark:text-slate-50 text-sm">{dataset.id}</td>
-                    <td className="px-6 py-4 text-slate-700 dark:text-slate-300 text-sm">{dataset.name}</td>
-                    <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-mono text-xs">{dataset.format || '---'}</td>
-                    <td className="px-6 py-4">
-                      <span className={clsx(
-                        "font-mono text-xs font-bold uppercase tracking-wider",
-                        (() => {
-                          const s = (dataset.status || '').toUpperCase();
-                          if (s === 'AVAILABLE' || s === 'UPLOADED') return "text-emerald-500";
-                          if (s === 'PENDING' || s === 'SHARDING') return "text-amber-500";
-                          if (s === 'FAILED') return "text-rose-500";
-                          return "text-slate-500";
-                        })()
-                      )}>
-                        {dataset.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-slate-500 font-mono text-xs">
-                      {new Date(dataset.created_at).toISOString().split('T')[0]}
-                    </td>
-                  </tr>
-                ))}
+                  {(!isDatasetsLoading && (!datasets?.datasets || datasets.datasets.length === 0)) && (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-sm font-mono text-slate-500">
+                        No datasets uploaded yet.
+                      </td>
+                    </tr>
+                  )}
+                  {(datasets?.datasets || []).map((dataset) => (
+                    <tr key={dataset.id} className="border-b border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950 transition-colors">
+                      <td className="px-6 py-4 font-mono text-slate-900 dark:text-slate-50 text-sm">{dataset.id}</td>
+                      <td className="px-6 py-4 text-slate-700 dark:text-slate-300 text-sm">{dataset.name}</td>
+                      <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-mono text-xs">{dataset.format || '---'}</td>
+                      <td className="px-6 py-4">
+                        <span className={clsx(
+                          "font-mono text-xs font-bold uppercase tracking-wider",
+                          (() => {
+                            const s = (dataset.status || '').toUpperCase();
+                            if (s === 'AVAILABLE' || s === 'UPLOADED') return "text-emerald-500";
+                            if (s === 'PENDING' || s === 'SHARDING') return "text-amber-500";
+                            if (s === 'FAILED') return "text-rose-500";
+                            return "text-slate-500";
+                          })()
+                        )}>
+                          {dataset.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-500 font-mono text-xs">
+                        {new Date(dataset.created_at).toISOString().split('T')[0]}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          onClick={() => {
+                            setConfirmState({ type: 'deleteDataset', datasetId: dataset.id, datasetName: dataset.name });
+                          }}
+                          disabled={deleteDataset.isPending}
+                          className="inline-flex items-center space-x-1 text-xs font-medium text-rose-500 hover:text-rose-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          title="Delete dataset"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
@@ -399,7 +408,7 @@ export default function GroupDashboard() {
             {isAdminOrOwner && (
               <div className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-slate-50 flex items-center mb-6">
-                  <UserCog className="w-5 h-5 mr-2 text-cyan-500" /> Member Roles
+                  <UserCog className="w-5 h-5 mr-2 text-cyan-500" /> Member Info
                 </h3>
                 
                 <div className="border border-slate-200 dark:border-slate-800">
@@ -408,7 +417,6 @@ export default function GroupDashboard() {
                       <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 uppercase text-xs font-semibold tracking-wider text-slate-500">
                         <th className="px-4 py-3">Member Email / Worker Name</th>
                         <th className="px-4 py-3">Role</th>
-                        <th className="px-4 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -429,19 +437,6 @@ export default function GroupDashboard() {
                             )}>
                               {member.role}
                             </span>
-                          </td>
-                          <td className="px-4 py-3 text-right space-x-2">
-                            {isOwner && member.role !== 'owner' && (
-                              <select 
-                                value={member.role}
-                                onChange={(e) => updateRole.mutate({ userId: member.user_id || member.worker_id!, role: e.target.value })}
-                                className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono py-1 px-2 focus:outline-none"
-                              >
-                                <option value="admin">Admin</option>
-                                <option value="member">Member</option>
-                                <option value="worker">Worker</option>
-                              </select>
-                            )}
                           </td>
                         </tr>
                       ))}
@@ -488,15 +483,7 @@ export default function GroupDashboard() {
                   Permanently delete this group and all associated data. This action cannot be undone.
                 </p>
                 <button
-                  onClick={async () => {
-                    if (!window.confirm('Are you sure you want to delete this group? This action is permanent and cannot be undone.')) return;
-                    try {
-                      await groupsAPI.deleteGroup(groupId!);
-                      navigate('/workspace');
-                    } catch (err: any) {
-                      toast.error(err?.response?.data?.detail || 'Failed to delete group.');
-                    }
-                  }}
+                  onClick={() => setConfirmState({ type: 'deleteGroup' })}
                   className="bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold py-3 px-6 uppercase tracking-wider transition-colors"
                 >
                   Delete Group
@@ -511,6 +498,43 @@ export default function GroupDashboard() {
       
       {/* Contextual Setup Modal */}
       <SetupModal isOpen={isSetupOpen} onClose={() => setIsSetupOpen(false)} />
+
+      {/* Unified Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmState !== null}
+        title={
+          confirmState?.type === 'deleteDataset'
+            ? 'Delete Dataset'
+            : 'Delete Group'
+        }
+        message={
+          confirmState?.type === 'deleteDataset'
+            ? 'Are you sure you want to permanently delete this dataset? This action cannot be undone.'
+            : 'Are you sure you want to permanently delete this group and all associated data? This action cannot be undone.'
+        }
+        detail={
+          confirmState?.type === 'deleteDataset'
+            ? confirmState.datasetName
+            : group?.name
+        }
+        confirmLabel={confirmState?.type === 'deleteDataset' ? 'Delete Dataset' : 'Delete Group'}
+        onCancel={() => setConfirmState(null)}
+        onConfirm={async () => {
+          if (!confirmState) return;
+          if (confirmState.type === 'deleteDataset') {
+            deleteDataset.mutate(confirmState.datasetId);
+            setConfirmState(null);
+          } else if (confirmState.type === 'deleteGroup') {
+            setConfirmState(null);
+            try {
+              await groupsAPI.deleteGroup(groupId!);
+              navigate('/workspace');
+            } catch (err: any) {
+              toast.error(err?.response?.data?.detail || 'Failed to delete group.');
+            }
+          }
+        }}
+      />
     </div>
   );
 }

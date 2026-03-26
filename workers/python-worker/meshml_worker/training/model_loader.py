@@ -29,9 +29,19 @@ logger = logging.getLogger(__name__)
 class ModelMetadata:
     """Model metadata validation"""
 
-    REQUIRED_FIELDS = ["name", "version", "framework", "input_shape", "output_shape"]
+    REQUIRED_FIELDS = [
+        "name", "version", "framework", "input_shape", "output_shape",
+        # Contract fields — define the math, not the user
+        "task_type", "loss", "metrics",
+    ]
 
-    OPTIONAL_FIELDS = ["description", "author", "tags", "hyperparameters", "requirements"]
+    OPTIONAL_FIELDS = [
+        "description", "author", "tags", "hyperparameters", "requirements",
+        "num_outputs", "target_dtype",
+    ]
+
+    SUPPORTED_TASK_TYPES = {"classification", "regression", "binary"}
+    SUPPORTED_LOSSES = {"cross_entropy", "mse", "mae", "bce_with_logits", "bce"}
 
     def __init__(self, metadata: Dict[str, Any]):
         """Initialize and validate metadata
@@ -46,7 +56,6 @@ class ModelMetadata:
         """Validate metadata structure"""
         # Check required fields
         missing_fields = [field for field in self.REQUIRED_FIELDS if field not in self.metadata]
-
         if missing_fields:
             raise ValueError(f"MODEL_METADATA missing required fields: {missing_fields}")
 
@@ -57,8 +66,28 @@ class ModelMetadata:
                 f"Supported: pytorch, tensorflow, jax"
             )
 
+        # Validate contract fields
+        task_type = self.metadata["task_type"]
+        if task_type not in self.SUPPORTED_TASK_TYPES:
+            raise ValueError(
+                f"MODEL_METADATA.task_type '{task_type}' is not supported. "
+                f"Supported: {sorted(self.SUPPORTED_TASK_TYPES)}"
+            )
+
+        loss = self.metadata["loss"]
+        if loss not in self.SUPPORTED_LOSSES:
+            raise ValueError(
+                f"MODEL_METADATA.loss '{loss}' is not supported. "
+                f"Supported: {sorted(self.SUPPORTED_LOSSES)}"
+            )
+
+        metrics = self.metadata["metrics"]
+        if not isinstance(metrics, list) or len(metrics) == 0:
+            raise ValueError("MODEL_METADATA.metrics must be a non-empty list of strings.")
+
         logger.info(
-            f"Model metadata validated: {self.metadata['name']} v{self.metadata['version']}"
+            f"Model metadata validated: {self.metadata['name']} v{self.metadata['version']} "
+            f"(task_type={task_type}, loss={loss})"
         )
 
     def get(self, key: str, default: Any = None) -> Any:

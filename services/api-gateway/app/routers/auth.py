@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta
 
 from app.models.user import User
-from app.schemas.auth import TokenResponse, UserLoginRequest, UserRegisterRequest, UserResponse
+from app.schemas.auth import TokenResponse, UserLoginRequest, UserRegisterRequest, UserResponse, UserChangePasswordRequest
 from app.utils.database import get_db
 from app.utils.security import (
     create_access_token,
@@ -183,3 +183,29 @@ async def refresh_token(current_user: User = Depends(get_current_user)):
     return TokenResponse(
         access_token=access_token, token_type="bearer", user=UserResponse.from_orm(current_user)
     )
+
+
+@router.post("/password", status_code=status.HTTP_200_OK)
+async def change_password(
+    request: UserChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Change user password
+    """
+    # Verify old password
+    if not verify_password(request.old_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect old password"
+        )
+    
+    # Hash new password
+    hashed_password = hash_password(request.new_password)
+    
+    # Update user in db
+    current_user.hashed_password = hashed_password
+    db.add(current_user)
+    await db.commit()
+    
+    return {"message": "Password updated successfully"}

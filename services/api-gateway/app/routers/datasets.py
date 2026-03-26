@@ -74,7 +74,7 @@ def _to_dataset_response(dataset: Dataset) -> DatasetResponse:
 async def upload_dataset(
     files: List[UploadFile] = File(...),
     dataset_name: Optional[str] = None,
-    dataset_format: Optional[str] = None,  # imagefolder, coco, csv, xlsx, auto-detect if None
+    dataset_format: Optional[str] = None,  # imagefolder, coco, csv, auto-detect if None
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks = BackgroundTasks(),
@@ -83,16 +83,16 @@ async def upload_dataset(
     Upload dataset from local files
 
     Supports:
-    - Multiple file upload (images, archives, CSV, XLSX)
-    - Individual CSV/XLSX files
+    - Multiple file upload (images, archives, CSV)
+    - Individual CSV files
     - Automatic format detection
     - Streaming to GCS
     - Background sharding trigger
 
     Args:
-        files: List of uploaded files (images, archives, .csv, .xlsx, etc.)
+        files: List of uploaded files (images, archives, .csv, etc.)
         dataset_name: Optional dataset name (auto-generated if not provided)
-        dataset_format: Dataset format (imagefolder, coco, csv, xlsx, or None for auto-detect)
+        dataset_format: Dataset format (imagefolder, coco, csv, or None for auto-detect)
         current_user: Authenticated user
         db: Database session
         background_tasks: FastAPI background tasks
@@ -165,8 +165,23 @@ async def upload_dataset(
                 dataset_format = detected_format
                 logger.info(f"Detected dataset format: {dataset_format}")
             else:
-                dataset_format = "unknown"
-                logger.warning(f"Could not detect dataset format, using 'unknown'")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Could not detect dataset format. "
+                        "Supported formats: imagefolder, csv, coco, .zip"
+                    ),
+                )
+
+        supported_formats = {"imagefolder", "coco", "csv"}
+        if dataset_format not in supported_formats:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Unsupported dataset format: {dataset_format}. "
+                    "Supported formats: imagefolder, csv, coco, .zip"
+                ),
+            )
 
         # Validate dataset structure
         validation_result = _validate_dataset_structure(upload_path, dataset_format)
@@ -227,6 +242,11 @@ async def upload_dataset(
             uploaded_at=dataset.created_at.isoformat(),
         )
 
+    except HTTPException:
+        # Cleanup on user/input errors as well.
+        if upload_path.exists():
+            shutil.rmtree(upload_path, ignore_errors=True)
+        raise
     except Exception as e:
         logger.error(f"Failed to upload dataset: {e}", exc_info=True)
 
@@ -512,11 +532,6 @@ def _detect_dataset_format(path: Path) -> Optional[str]:
     if (path / "annotations").exists() and (path / "images").exists():
         return "coco"
 
-    # Check for XLSX
-    xlsx_files = list(path.glob("*.xlsx")) + list(path.glob("*.xls"))
-    if xlsx_files:
-        return "xlsx"
-
     # Check for CSV
     csv_files = list(path.glob("*.csv"))
     if csv_files:
@@ -539,10 +554,8 @@ def _validate_dataset_structure(path: Path, format: str) -> dict:
             return _validate_coco(path)
         elif format == "csv":
             return _validate_csv(path)
-        elif format == "xlsx":
-            return _validate_xlsx(path)
         else:
-            return {"valid": True, "num_samples": 0, "num_classes": 0}
+            return {"valid": False, "error": f"Unsupported dataset format: {format}"}
     except Exception as e:
         return {"valid": False, "error": str(e)}
 

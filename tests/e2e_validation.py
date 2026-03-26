@@ -140,6 +140,9 @@ async def _upload_model(
         "    'framework': 'pytorch',\n"
         "    'input_shape': [1],\n"
         "    'output_shape': [2],\n"
+        "    'task_type': 'classification',\n"
+        "    'loss': 'cross_entropy',\n"
+        "    'metrics': ['accuracy'],\n"
         "}\n\n"
         "class TinyModel(nn.Module):\n"
         "    def __init__(self):\n"
@@ -165,6 +168,8 @@ async def _upload_model(
         "version": "1.0.0",
     }
     response = await client.post("/api/models/upload", headers=headers, data=data, files=files)
+    if response.status_code >= 400:
+        raise RuntimeError(f"Model upload failed: {response.status_code} {response.text}")
     response.raise_for_status()
     model_id = str(response.json()["model_id"])
     _log(f"Uploaded model: {model_id}")

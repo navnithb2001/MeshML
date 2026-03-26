@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { Outlet, Link, useNavigate } from 'react-router-dom';
-import { LogOut } from 'lucide-react';
+import { LogOut, Key } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import ChangePasswordModal from '@/components/ChangePasswordModal';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
@@ -33,6 +36,15 @@ export default function DashboardLayout() {
         
         <div className="flex items-center space-x-4">
           <ThemeToggle />
+          <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-2" />
+          <button
+            onClick={() => setIsPasswordModalOpen(true)}
+            className="flex items-center gap-2 text-sm text-slate-500 hover:text-cyan-600 transition-colors uppercase tracking-wider font-medium"
+            title="Change Password"
+          >
+            <Key className="w-4 h-4" />
+            <span className="hidden sm:inline">Password</span>
+          </button>
           <button
             onClick={handleLogout}
             className="flex items-center gap-2 text-sm text-slate-500 hover:text-rose-500 transition-colors uppercase tracking-wider font-medium"
@@ -48,6 +60,12 @@ export default function DashboardLayout() {
       <main className="flex-1 overflow-auto p-6">
         <Outlet />
       </main>
+
+      {/* Password Modal */}
+      <ChangePasswordModal 
+        isOpen={isPasswordModalOpen} 
+        onClose={() => setIsPasswordModalOpen(false)} 
+      />
     </div>
   );
 }
