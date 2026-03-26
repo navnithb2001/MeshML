@@ -1,117 +1,159 @@
-# MeshML: Distributed Machine Learning Platform
+# MeshML
 
-MeshML is a high-performance, distributed machine learning ecosystem designed to bridge the gap between local development and large-scale cloud training. The architecture utilizes a **microservices model**, leveraging a hybrid of **REST/WebSockets** for user interaction and **gRPC** for high-speed, internal data synchronization.
+Distributed ML training platform using microservices, gRPC streaming for control/math, and HTTP for user APIs + object storage transfers.
 
----
+## System design (current implementation)
 
-## 🏗️ Full System Design: Who Calls What
+### Phase A: Ingestion
+1. User uploads `model.py` and dataset archive through API Gateway REST endpoints.
+2. API Gateway calls Model Registry gRPC `RegisterNewModel`, then uploads code to object storage via signed URL.
+3. API Gateway stores dataset metadata and triggers Dataset Sharder later during job start.
 
-### Phase A: Ingestion (The Setup)
-1. **User → API Gateway (REST):** Uploads the `model.py` definition and the `dataset.tar.gz` archive via standard HTTP POST requests.
-2. **API Gateway → Model Registry (gRPC):** Calls `RegisterNewModel()`. The Registry saves the Python file to Object Storage (MinIO/GCS) and creates a record in the `models` table with `version_1`.
-3. **API Gateway → Dataset Sharder (gRPC):** Triggers the sharding process. The Sharder physically splits the uploaded data, saves chunks to Object Storage, and populates the `data_batches` table so available work is visible to the scheduler.
+### Phase B: Orchestration
+1. User starts a job from UI/API (`POST /api/jobs`).
+2. API Gateway calls Task Orchestrator gRPC `InitiateTraining`.
+3. Task Orchestrator requests model artifact signed URL from Model Registry and embeds it in streamed task assignments.
 
-### Phase B: Orchestration (Starting the Job)
-1. **User → API Gateway (REST):** Starts a job on a selected dataset/model version.
-2. **API Gateway → Task Orchestrator (gRPC):** Calls `InitiateTraining(job_id, model_version)`.
-3. **Task Orchestrator → Model Registry (gRPC):** Calls `GetModelArtifact()` to generate short-lived signed URLs for model code; those URLs are embedded into worker task assignments.
+### Phase C: Training loop
+1. Worker opens bidirectional `StreamTasks` with Task Orchestrator.
+2. Worker downloads `model.py` and `batch.data` over HTTP signed URLs.
+3. Worker pulls/pushes weights+gradients with Parameter Server over gRPC.
+4. Parameter Server persists checkpoints to Model Registry on interval / version schedule.
 
-### Phase C: Training Loop (The Work)
-1. **Worker ↔ Task Orchestrator (gRPC):** Uses bidirectional `StreamTasks`. The Orchestrator pushes assignments, and workers stream heartbeat + task status (`TaskResult`) back.
-2. **Worker → Object Storage (HTTP):** Downloads `model.py` and assigned `data_batch` directly using signed URLs.
-3. **Worker ↔ Parameter Server (gRPC):** Pulls global weights (`PullWeights`), computes local gradients, and pushes updates (`PushGradients`) using binary tensor payloads.
-4. **Parameter Server → Model Registry (Internal):** A background persistence loop periodically saves checkpoints based on version intervals.
+### Phase D: Completion
+1. Parameter Server uploads final state dict when `final_version` threshold is reached.
+2. Model Registry marks model complete and stores final artifact.
+3. API Gateway exposes status and download endpoints.
 
-### Phase D: Completion (The Result)
-1. **Parameter Server → Model Registry (gRPC):** When global version reaches `final_version`, uploads final `state_dict`.
-2. **Model Registry:** Marks model `COMPLETED` and stores final `.pt`.
-3. **API Gateway → User:** Exposes completed status and download endpoints through REST.
+## Protocol split
 
----
+- gRPC: worker orchestration stream, parameter sync, metrics stream, internal service calls.
+- HTTP/REST: user auth/groups/jobs, file upload/download, signed object URL transfers.
+- WebSocket: live job stats to dashboard.
 
-## 📡 Architectural Choice: The Protocol Split
+## What is currently supported
 
-MeshML uses a strict protocol split: high-frequency control/math over gRPC, user-facing and blob transfer over HTTP.
+### Model upload contract (`/api/models/upload`)
 
-### 1. The gRPC Plane (High-Performance Control & Math)
-- **Worker ↔ Task Orchestrator:** Bidirectional streaming (`StreamTasks`) for push assignments and live worker status.
-- **Worker ↔ Parameter Server:** Binary gradient and weight transport over Protobuf for low latency and low CPU overhead.
-- **Worker ↔ Metrics Service:** Streaming metrics updates for near-real-time observability.
-- **Internal service-to-service:** API Gateway triggers internal commands (`RegisterNewModel`, `InitiateTraining`, sharding) via gRPC contracts.
+Model file validation currently enforces:
+- UTF-8 Python source
+- valid Python syntax
+- `create_model()` function exists
+- `MODEL_METADATA` exists and is a dict literal
 
-### 2. The HTTP Plane (Universal Access & Blob Transfer)
-- **Worker → Object Storage (Signed URLs):** Large model/data blob downloads use direct HTTP/HTTPS for throughput and resilience.
-- **User ↔ API Gateway:** Authentication, group/project actions, uploads, and job triggers use REST/HTTP for browser/CLI compatibility.
-- **Observability (WebSockets):** API Gateway upgrades HTTP to WebSockets to stream live training updates to dashboards.
+`MODEL_METADATA` required fields:
+- `name`
+- `version`
+- `framework`
+- `input_shape`
+- `output_shape`
+- `task_type` (`classification`, `regression`, `binary`)
+- `loss` (`cross_entropy`, `mse`, `mae`, `bce_with_logits`, `bce`)
+- `metrics` (non-empty list of strings)
 
----
+### Dataset upload formats (`/api/datasets/upload`)
 
-## 🛡️ Lifecycle & Fault Tolerance
+Supported dataset formats:
+- `imagefolder`
+- `csv`
+- `coco`
 
-* **Self-Healing Workers:** If a gRPC stream is interrupted, the Orchestrator automatically reverts the assigned batch to `AVAILABLE` for re-assignment.
-* **Resource Respect:** Workers include a background monitor (`psutil`) that pauses training if local CPU/RAM usage exceeds 80%.
-* **Persistence:** The Parameter Server snapshots Redis weights into persistent object storage (GCS/MinIO) every $N$ versions to prevent data loss.
-* **Cleanup:** Cascading delete logic ensures that when a dataset is removed, all associated cloud objects and database shards are purged.
+Format can be auto-detected from uploaded content. Unknown/unsupported formats are rejected with `400`.
 
----
+### Worker trainer modes
 
-## 🚀 Getting Started
+Current Python worker trainer supports task configs from model metadata:
+- `classification`
+- `regression`
+- `binary`
 
-### 1) Start the platform (local)
+Loss and metric behavior are selected from metadata at runtime.
+
+## Local run
+
+### 1) Start stack
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-### 2) Initialize the database
+### 2) Initialize database
 
 ```bash
 psql -h localhost -p 5432 -U meshml -d meshml -f scripts/init-db.sql
 ```
 
-### 3) Use the API Gateway for ingestion
-
-1. **Upload model and dataset** via API Gateway endpoints.
-2. **Start a job** for a model version.
-
-The API Gateway will trigger sharding and orchestration via gRPC internally.
-
-### 4) Start workers
-
-Use the Python worker:
+### 3) Install and run Python worker
 
 ```bash
 pip install -e workers/python-worker
 meshml-worker init --api-url http://localhost:8000
 meshml-worker login --email you@example.com
-meshml-worker join --invitation-code inv_abc123 --worker-id my-laptop
+meshml-worker join --invitation-code <code> --worker-id my-laptop1
 meshml-worker run
 ```
 
-### 5) Monitor progress
+Useful worker env vars:
+- `MESHML_DISABLE_RESOURCE_THROTTLE=true` disables CPU/RAM pause monitor.
+- `MESHML_EXIT_ON_JOB_COMPLETE=true` exits worker after a job fully completes.
+- `MESHML_CPU_PAUSE_THRESHOLD` / `MESHML_RAM_PAUSE_THRESHOLD` override pause thresholds.
 
-- **WebSocket:** `GET /api/ws/jobs/{job_id}/stats` (live metrics + status changes)
-- **Fallback:** `GET /api/jobs/{job_id}/status`
+## Dashboard
 
-### 6) Download the final model
+Dashboard lives under `dashboard/`.
 
-- **Final model:** `GET /api/models/{model_id}/download`
-- **Checkpoint:** `GET /api/models/{model_id}/checkpoints/{version}`
+Run locally:
 
-## Services
+```bash
+cd dashboard
+npm install
+npm run dev
+```
 
-- API Gateway (REST + WebSocket)
-- Task Orchestrator (gRPC)
-- Dataset Sharder (gRPC)
-- Parameter Server (gRPC)
-- Model Registry (REST + gRPC)
-- Metrics Service (gRPC)
+Current UI includes:
+- Group dashboard tabs for jobs, workers, datasets, settings
+- New Training Run modal with:
+  - upload new or reuse existing dataset
+  - model code upload
+  - convergence target (`final_version > 0`)
+- Toast notifications + error boundary for frontend failures
 
-## Repo Layout (What Matters)
+## E2E validation
 
-- `services/` – microservices
-- `workers/python-worker/` – worker agent
-- `services/*/proto/` – per-service `.proto` definitions used for local stub generation
-- `docker/` – local compose
-- `k8s/` – Kubernetes manifests
-- `scripts/init-db.sql` – database bootstrap
+Run:
+
+```bash
+E2E_USER_EMAIL=you1@example.com \
+E2E_USER_PASSWORD='StrongPass123!' \
+E2E_GROUP_ID='<group-id>' \
+E2E_WORKER_ID='my-laptop1' \
+python tests/e2e_validation.py
+```
+
+The script validates:
+- auth/login
+- model upload
+- dataset upload + availability
+- job creation
+- worker heartbeat path
+- job progress / parameter-server signal
+
+## Service endpoints (docker compose defaults)
+
+- API Gateway: `http://localhost:8000`
+- Dataset Sharder: `http://localhost:8001` and gRPC `localhost:50053`
+- Task Orchestrator: `http://localhost:8002` and gRPC `localhost:50051`
+- Parameter Server: `http://localhost:8003` and gRPC `localhost:50052`
+- Model Registry: `http://localhost:8004` and gRPC `localhost:50054` (host-mapped)
+- Metrics Service: `http://localhost:8005` and gRPC `localhost:50055`
+- MinIO: `http://localhost:9000` (console `http://localhost:9001`)
+
+## Repository layout
+
+- `services/` microservices
+- `workers/python-worker/` worker runtime + CLI
+- `dashboard/` React/Vite UI
+- `tests/` integration + E2E scripts
+- `docker/` local compose
+- `k8s/` Kubernetes manifests
+- `scripts/init-db.sql` DB bootstrap
