@@ -2,7 +2,7 @@
 
 Distributed ML training platform using microservices, gRPC streaming for control/math, and HTTP for user APIs + object storage transfers.
 
-## System design (current implementation)
+## System design
 
 ### Phase A: Ingestion
 1. User uploads `model.py` and dataset archive through API Gateway REST endpoints.
@@ -18,7 +18,9 @@ Distributed ML training platform using microservices, gRPC streaming for control
 1. Worker opens bidirectional `StreamTasks` with Task Orchestrator.
 2. Worker downloads `model.py` and `batch.data` over HTTP signed URLs.
 3. Worker pulls/pushes weights+gradients with Parameter Server over gRPC.
-4. Parameter Server persists checkpoints to Model Registry on interval / version schedule.
+4. Worker streams step-level metrics (`loss`, `accuracy`, `timestamp`, `worker_id`) to Metrics Service over gRPC (`StreamMetrics`).
+5. Metrics Service publishes/persists telemetry (Redis + PostgreSQL) for dashboard and monitoring consumers.
+6. Parameter Server persists checkpoints to Model Registry on interval / version schedule.
 
 ### Phase D: Completion
 1. Parameter Server uploads final state dict when `final_version` threshold is reached.
