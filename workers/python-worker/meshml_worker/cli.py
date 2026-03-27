@@ -32,7 +32,7 @@ def _default_config_path() -> Path:
 
 
 @click.group()
-@click.version_option(version="0.3.2")
+@click.version_option(version="0.3.3")
 def main() -> None:
     """MeshML Worker - Federated Learning Worker"""
     pass
