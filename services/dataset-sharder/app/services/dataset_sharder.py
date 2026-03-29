@@ -199,21 +199,8 @@ class DatasetSharder:
 
         Each shard gets approximately the same proportion of each class.
         """
-        # Group samples by class
-        class_to_indices: Dict[str, List[int]] = defaultdict(list)
-
-        # Iterate through dataset to build class index mapping
-        sample_idx = 0
-        for batch in self.loader.stream_samples(batch_size=1000):
-            for sample in batch:
-                # Get class name from label
-                if isinstance(sample.label, int):
-                    class_name = self.metadata.class_names[sample.label]
-                else:
-                    class_name = str(sample.label)
-
-                class_to_indices[class_name].append(sample_idx)
-                sample_idx += 1
+        # Group samples by class or bucket
+        class_to_indices = self._group_samples_by_class()
 
         # Shuffle samples within each class
         for class_name in class_to_indices:
@@ -266,18 +253,7 @@ class DatasetSharder:
         Uses Dirichlet distribution to create realistic non-IID partitions.
         """
         # Group samples by class
-        class_to_indices: Dict[str, List[int]] = defaultdict(list)
-
-        sample_idx = 0
-        for batch in self.loader.stream_samples(batch_size=1000):
-            for sample in batch:
-                if isinstance(sample.label, int):
-                    class_name = self.metadata.class_names[sample.label]
-                else:
-                    class_name = str(sample.label)
-
-                class_to_indices[class_name].append(sample_idx)
-                sample_idx += 1
+        class_to_indices = self._group_samples_by_class()
 
         num_classes = len(class_to_indices)
 
@@ -371,19 +347,69 @@ class DatasetSharder:
 
         return shards
 
+    def _group_samples_by_class(self) -> Dict[str, List[int]]:
+        """
+        Group sample indices by their class label or bucket ID (for regression).
+        Automatically detects continuous targets and uses quantile binning.
+        """
+        if hasattr(self, '_cached_groups') and self._cached_groups:
+            return self._cached_groups
+
+        labels_by_idx = []
+        for batch in self.loader.stream_samples(batch_size=1000):
+            for sample in batch:
+                labels_by_idx.append(sample.label)
+                
+        labels_array = np.array(labels_by_idx)
+        is_continuous = False
+        
+        # Check if numeric
+        if np.issubdtype(labels_array.dtype, np.number):
+            if np.issubdtype(labels_array.dtype, np.floating):
+                is_continuous = True
+            elif len(np.unique(labels_array)) / max(1, len(labels_array)) > 0.5:
+                is_continuous = True
+
+        class_to_indices: Dict[str, List[int]] = defaultdict(list)
+        self._sample_to_class = {}
+        
+        if is_continuous:
+            logger.info("Detected continuous target labels. Applying quantile binning.")
+            num_bins = min(10, len(np.unique(labels_array)))
+            if num_bins < 2:
+                for idx in range(len(labels_array)):
+                    class_name = "Bucket_0"
+                    class_to_indices[class_name].append(idx)
+                    self._sample_to_class[idx] = class_name
+            else:
+                quantiles = np.linspace(0, 1, num_bins + 1)
+                bin_edges = np.quantile(labels_array, quantiles)
+                bin_edges[0] -= 1e-5
+                bin_edges[-1] += 1e-5
+                bucket_ids = np.digitize(labels_array, bin_edges) - 1
+                for idx, bucket_id in enumerate(bucket_ids):
+                    class_name = f"Bucket_{bucket_id}"
+                    class_to_indices[class_name].append(idx)
+                    self._sample_to_class[idx] = class_name
+        else:
+            for idx, label in enumerate(labels_by_idx):
+                if isinstance(label, int) and self.metadata and hasattr(self.metadata, 'class_names') and self.metadata.class_names and label < len(self.metadata.class_names):
+                    class_name = self.metadata.class_names[label]
+                else:
+                    class_name = str(label)
+                class_to_indices[class_name].append(idx)
+                self._sample_to_class[idx] = class_name
+                
+        self._cached_groups = class_to_indices
+        return class_to_indices
+
     def _calculate_class_distribution(self, indices: List[int]) -> Dict[str, int]:
         """Calculate class distribution for a list of sample indices."""
+        self._group_samples_by_class() # Ensure buckets are initialized
+        
         class_counts = defaultdict(int)
-
-        # Load samples to get their labels
         for idx in indices:
-            sample = self.loader.get_sample(idx)
-
-            if isinstance(sample.label, int):
-                class_name = self.metadata.class_names[sample.label]
-            else:
-                class_name = str(sample.label)
-
+            class_name = self._sample_to_class[idx]
             class_counts[class_name] += 1
 
         return dict(class_counts)
