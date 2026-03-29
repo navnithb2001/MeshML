@@ -56,6 +56,7 @@ metadata:
     app: api-gateway
 spec:
   type: LoadBalancer
+  loadBalancerIP: ${GATEWAY_IP}
   ports:
   - port: 80
     targetPort: 8000

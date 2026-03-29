@@ -100,6 +100,12 @@ Useful worker env vars:
 - `MESHML_EXIT_ON_JOB_COMPLETE=true` exits worker after a job fully completes.
 - `MESHML_CPU_PAUSE_THRESHOLD` / `MESHML_RAM_PAUSE_THRESHOLD` override pause thresholds.
 
+## Production Deployment
+
+For instructions on deploying the MeshML backend platform to Google Kubernetes Engine (GKE) with zero local-to-prod code changes, please refer to the [GKE Deployment Guide](GKE-DEPLOYMENT.md).
+
+For instructions on deploying the React Dashboard UI to Firebase Hosting, please refer to the [Firebase Deployment Guide](FIREBASE-DEPLOYMENT.md).
+
 ## Dashboard
 
 Dashboard lives under `dashboard/`.

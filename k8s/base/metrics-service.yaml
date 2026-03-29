@@ -54,6 +54,8 @@ metadata:
   labels:
     app: metrics-service
 spec:
+  type: ClusterIP
+  clusterIP: None
   selector:
     app: metrics-service
   ports:
