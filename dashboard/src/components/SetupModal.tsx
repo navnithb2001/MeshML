@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { X, UploadCloud, Code, Settings, Play, CheckCircle } from 'lucide-react';
+import { X, UploadCloud, Code, Settings, Play, CheckCircle, ChevronDown, ChevronUp, Info } from 'lucide-react';
 import { jobsAPI, datasetsAPI, modelsAPI } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import clsx from 'clsx';
@@ -43,6 +43,8 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [targetVersion, setTargetVersion] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [shardingStrategy, setShardingStrategy] = useState('stratified');
 
   // File Upload State
   const [datasetFile, setDatasetFile] = useState<File | null>(null);
@@ -159,7 +161,8 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
       const job = await jobsAPI.createJob({ 
         group_id: groupId,
         dataset_id: datasetId || undefined,
-        config: { final_version: Math.floor(parsedTarget) }
+        config: { final_version: Math.floor(parsedTarget) },
+        sharding_strategy: shardingStrategy
       });
       // Immediately routes user to Live Dashboard
       toast.success('Training run started successfully.');
@@ -371,6 +374,66 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
                     placeholder="e.g. 10000"
                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2 font-mono text-sm focus:outline-none focus:border-cyan-600 dark:focus:border-cyan-400 transition-colors"
                   />
+                </div>
+                
+                {/* Advanced Configuration Accordion */}
+                <div className="mt-6 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
+                  <button 
+                    type="button"
+                    onClick={() => setShowAdvanced(!showAdvanced)} 
+                    className="w-full flex items-center justify-between p-4 text-sm font-medium text-slate-900 dark:text-slate-50 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors"
+                  >
+                    <span className="uppercase tracking-wider">Advanced Configuration</span>
+                    {showAdvanced ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                  </button>
+                  
+                  {showAdvanced && (
+                    <div className="p-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
+                      
+                      {/* Sharding Strategy */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-mono text-slate-500 uppercase">Data Sharding Strategy</label>
+                        <div className="space-y-2">
+                          {[
+                            { value: 'stratified', label: 'Stratified', tooltip: 'Default. Maintains the global class distribution across all shards evenly.' },
+                            { value: 'random', label: 'Random (IID)', tooltip: 'Purely random Independent and Identically Distributed chunks.' },
+                            { value: 'non_iid', label: 'Non-IID', tooltip: 'Simulates federated learning by skewing class distribution per shard using a Dirichlet distribution.' },
+                            { value: 'sequential', label: 'Sequential', tooltip: 'Grabs contiguous blocks of data without shuffling. Mostly for debugging.' },
+                          ].map((option) => (
+                            <div 
+                              key={option.value}
+                              onClick={() => setShardingStrategy(option.value)}
+                              className={clsx(
+                                "relative group flex items-center justify-between p-3 border cursor-pointer transition-colors",
+                                shardingStrategy === option.value 
+                                  ? "border-cyan-500 bg-cyan-500/10" 
+                                  : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900"
+                              )}
+                            >
+                              <span className={clsx(
+                                "text-sm flex-1 font-medium",
+                                shardingStrategy === option.value ? "text-cyan-600 dark:text-cyan-400" : "text-slate-700 dark:text-slate-300"
+                              )}>
+                                {option.label}
+                              </span>
+                              
+                              <div className="relative flex items-center shrink-0">
+                                <Info className="w-4 h-4 text-slate-400 dark:text-slate-500" />
+                                
+                                {/* Custom CSS Tooltip */}
+                                <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity duration-200 bottom-full right-0 mb-2 w-56 p-2 bg-slate-900 text-slate-50 text-xs rounded shadow-lg pointer-events-none z-10 whitespace-normal text-left">
+                                  {option.tooltip}
+                                  {/* Tooltip Arrow */}
+                                  <div className="absolute top-full right-1 border-[5px] border-transparent border-t-slate-900" />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                    </div>
+                  )}
                 </div>
               </div>
               
