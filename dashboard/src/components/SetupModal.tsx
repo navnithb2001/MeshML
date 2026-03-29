@@ -161,7 +161,7 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
         dataset_id: datasetId || undefined,
         config: { final_version: Math.floor(parsedTarget) }
       });
-      // Immediately routes user to The Cockpit
+      // Immediately routes user to Live Dashboard
       toast.success('Training run started successfully.');
       onClose();
       navigate(`/jobs/${job.id}/live`);

@@ -22,7 +22,7 @@ function App() {
           <ErrorBoundary>
             <BrowserRouter>
               <Routes>
-                {/* The Airlock */}
+                {/* Login Page */}
                 <Route path="/login" element={<Login />} />
                 
                 {/* Dashboard Layout wrapper for internal views */}

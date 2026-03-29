@@ -5,17 +5,38 @@ import { authAPI } from '@/lib/api';
 
 export default function Login() {
   const navigate = useNavigate();
+  const [isLogin, setIsLogin] = useState(true);
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordMismatch, setPasswordMismatch] = useState(false);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(false);
+    setPasswordMismatch(false);
     setLoading(true);
 
     try {
+      if (!isLogin) {
+        if (password !== confirmPassword) {
+          setPasswordMismatch(true);
+          setLoading(false);
+          return;
+        }
+
+        // Register user first
+        await authAPI.register({
+          email,
+          password,
+          full_name: fullName || undefined,
+        });
+      }
+
+      // Login to get access token (automatically after registration or directly for login)
       const response = await authAPI.login({
         email,
         password,
@@ -28,7 +49,7 @@ export default function Login() {
     } catch (err) {
       // Force 1px red error border state
       setError(true);
-      console.error('Login Failed', err);
+      console.error(isLogin ? 'Login Failed' : 'Registration Failed', err);
     } finally {
       setLoading(false);
     }
@@ -45,31 +66,47 @@ export default function Login() {
       >
         <div className="mb-8">
           <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 uppercase">
-            MeshML Airlock
+            MeshML Login
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Command Center Access
+            {isLogin ? 'Login to your account' : 'Create a new account'}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {!isLogin && (
+            <div className="space-y-2">
+              <label className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Full Name
+              </label>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2 font-mono text-sm placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-cyan-600 dark:focus:border-cyan-400 transition-colors"
+                placeholder="Full Name"
+                required={!isLogin}
+              />
+            </div>
+          )}
+
           <div className="space-y-2">
             <label className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Identity
+              Email Address
             </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2 font-mono text-sm placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-cyan-600 dark:focus:border-cyan-400 transition-colors"
-              placeholder="operator@meshml.internal"
+              placeholder="name@company.com"
               required
             />
           </div>
 
           <div className="space-y-2">
             <label className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Passkey
+              Password
             </label>
             <input
               type="password"
@@ -78,12 +115,35 @@ export default function Login() {
               className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2 font-mono text-sm placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-cyan-600 dark:focus:border-cyan-400 transition-colors"
               placeholder="••••••••••••"
               required
+              minLength={8}
             />
           </div>
 
-          {error && (
+          {!isLogin && (
+            <div className="space-y-2">
+              <label className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Confirm Password
+              </label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2 font-mono text-sm placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-cyan-600 dark:focus:border-cyan-400 transition-colors"
+                placeholder="••••••••••••"
+                required={!isLogin}
+                minLength={8}
+              />
+            </div>
+          )}
+
+          {error && !passwordMismatch && (
             <div className="font-mono text-xs font-bold text-rose-600 dark:text-rose-500 mt-2">
-              ERR: INVALID_CREDENTIALS
+              {isLogin ? 'ERR: INVALID_CREDENTIALS' : 'ERR: REGISTRATION_FAILED'}
+            </div>
+          )}
+          {passwordMismatch && !isLogin && (
+            <div className="font-mono text-xs font-bold text-rose-600 dark:text-rose-500 mt-2">
+              ERR: PASSWORDS_DO_NOT_MATCH
             </div>
           )}
 
@@ -92,9 +152,23 @@ export default function Login() {
             disabled={loading}
             className="w-full bg-slate-900 dark:bg-slate-50 text-slate-50 dark:text-slate-900 font-medium py-2 px-4 text-sm mt-4 hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {loading ? 'AUTHENTICATING...' : 'INITIALIZE'}
+            {loading ? 'AUTHENTICATING...' : (isLogin ? 'LOG IN' : 'SIGN UP')}
           </button>
         </form>
+
+        <div className="mt-8 text-center">
+          <button
+            type="button"
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setError(false);
+              setPasswordMismatch(false);
+            }}
+            className="text-xs font-mono tracking-wider text-slate-500 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors"
+          >
+            {isLogin ? "DON'T HAVE AN ACCOUNT? SIGN UP" : 'ALREADY HAVE AN ACCOUNT? LOG IN'}
+          </button>
+        </div>
       </div>
     </div>
   );

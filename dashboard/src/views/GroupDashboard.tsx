@@ -235,7 +235,7 @@ export default function GroupDashboard() {
                         to={`/jobs/${job.id}/live`}
                         className="text-cyan-600 hover:text-cyan-800 dark:hover:text-cyan-400 font-medium text-xs uppercase tracking-wider"
                       >
-                        Enter Cockpit
+                        View Live Job
                       </Link>
                     </td>
                   </tr>
