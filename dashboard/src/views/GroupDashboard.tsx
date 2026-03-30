@@ -213,7 +213,9 @@ export default function GroupDashboard() {
                     <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-mono text-xs">{job.dataset_id || '---'}</td>
                     <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-mono text-xs">{job.model_id || '---'}</td>
                     <td className="px-6 py-4">
-                      <span className={clsx(
+                      <span 
+                        title={['FAILED', 'CANCELLED'].includes((job.status || '').toUpperCase()) ? (job as any).error_message || 'Job failed' : undefined}
+                        className={clsx(
                         "font-mono text-xs font-bold uppercase tracking-wider",
                         (() => {
                           const s = (job.status || '').toUpperCase();
@@ -235,7 +237,7 @@ export default function GroupDashboard() {
                         to={`/jobs/${job.id}/live`}
                         className="text-cyan-600 hover:text-cyan-800 dark:hover:text-cyan-400 font-medium text-xs uppercase tracking-wider"
                       >
-                        View Live Job
+                        View Job
                       </Link>
                     </td>
                   </tr>
@@ -500,24 +502,36 @@ export default function GroupDashboard() {
       <SetupModal isOpen={isSetupOpen} onClose={() => setIsSetupOpen(false)} />
 
       {/* Unified Confirm Modal */}
-      <ConfirmModal
-        isOpen={confirmState !== null}
-        title={
-          confirmState?.type === 'deleteDataset'
-            ? 'Delete Dataset'
-            : 'Delete Group'
+      {(() => {
+        let activeDatasetJobs = 0;
+        if (confirmState?.type === 'deleteDataset' && jobs) {
+          activeDatasetJobs = jobs.filter((j) => 
+            j.dataset_id === confirmState.datasetId && 
+            ['pending', 'processing', 'running', 'sharding', 'uploading'].includes((j.status || '').toLowerCase())
+          ).length;
         }
-        message={
-          confirmState?.type === 'deleteDataset'
-            ? 'Are you sure you want to permanently delete this dataset? This action cannot be undone.'
-            : 'Are you sure you want to permanently delete this group and all associated data? This action cannot be undone.'
-        }
-        detail={
-          confirmState?.type === 'deleteDataset'
-            ? confirmState.datasetName
-            : group?.name
-        }
-        confirmLabel={confirmState?.type === 'deleteDataset' ? 'Delete Dataset' : 'Delete Group'}
+
+        return (
+          <ConfirmModal
+            isOpen={confirmState !== null}
+            title={
+              confirmState?.type === 'deleteDataset'
+                ? activeDatasetJobs > 0 ? 'DESTRUCTIVE_ACTION_DETECTED' : 'Delete Dataset'
+                : 'Delete Group'
+            }
+            message={
+              confirmState?.type === 'deleteDataset'
+                ? activeDatasetJobs > 0 
+                  ? `This dataset is currently being used by ${activeDatasetJobs} active training jobs. Deleting it will permanently cancel these runs. Are you sure? (Completed or Failed jobs will remain in your history).`
+                  : 'Are you sure you want to permanently delete this dataset? This action cannot be undone.'
+                : 'Are you sure you want to permanently delete this group and all associated data? This action cannot be undone.'
+            }
+            detail={
+              confirmState?.type === 'deleteDataset'
+                ? confirmState.datasetName
+                : group?.name
+            }
+            confirmLabel={confirmState?.type === 'deleteDataset' ? activeDatasetJobs > 0 ? 'Force Delete' : 'Delete Dataset' : 'Delete Group'}
         onCancel={() => setConfirmState(null)}
         onConfirm={async () => {
           if (!confirmState) return;
@@ -534,7 +548,9 @@ export default function GroupDashboard() {
             }
           }
         }}
-      />
+        />
+        );
+      })()}
     </div>
   );
 }

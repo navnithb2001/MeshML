@@ -20,8 +20,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import aiohttp
+import asyncio
+import boto3
+import csv
+import json
+import openpyxl
+import pandas as pd
+from botocore.config import Config
+from google.auth.credentials import AnonymousCredentials
+from google.cloud import storage
 from app.clients.dataset_sharder_client import DatasetSharderClient
 from app.models.dataset import Dataset  # We'll create this model
+from app.models.job import Job
 from app.models.user import User
 from app.proto import dataset_sharder_pb2
 from app.routers.auth import get_current_user
@@ -32,9 +42,9 @@ from app.schemas.dataset import (
     DatasetUploadResponse,
 )
 from app.utils.database import AsyncSessionLocal, get_db
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status, Form
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -70,11 +80,12 @@ def _to_dataset_response(dataset: Dataset) -> DatasetResponse:
     )
 
 
-@router.post("/upload", response_model=DatasetUploadResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/upload", response_model=DatasetUploadResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_dataset(
     files: List[UploadFile] = File(...),
-    dataset_name: Optional[str] = None,
-    dataset_format: Optional[str] = None,  # imagefolder, coco, csv, auto-detect if None
+    dataset_name: Optional[str] = Form(None),
+    dataset_format: Optional[str] = Form(None),  # imagefolder, coco, csv, auto-detect if None
+    shard_strategy: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks = BackgroundTasks(),
@@ -84,21 +95,9 @@ async def upload_dataset(
 
     Supports:
     - Multiple file upload (images, archives, CSV)
-    - Individual CSV files
     - Automatic format detection
     - Streaming to GCS
     - Background sharding trigger
-
-    Args:
-        files: List of uploaded files (images, archives, .csv, etc.)
-        dataset_name: Optional dataset name (auto-generated if not provided)
-        dataset_format: Dataset format (imagefolder, coco, csv, or None for auto-detect)
-        current_user: Authenticated user
-        db: Database session
-        background_tasks: FastAPI background tasks
-
-    Returns:
-        Dataset upload response with ID and status
     """
     logger.info(f"User {current_user.email} uploading dataset with {len(files)} files")
 
@@ -111,7 +110,7 @@ async def upload_dataset(
     upload_path.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Save uploaded files
+        # Save uploaded files fast
         total_size = 0
         file_count = 0
 
@@ -121,121 +120,56 @@ async def upload_dataset(
             # Create parent directories if needed
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Stream file to disk
+            # Fast Write stream to disk
             with open(file_path, "wb") as f:
-                while chunk := await file.read(8192):  # 8KB chunks
+                while chunk := await file.read(1024 * 1024):  # 1MB chunks
                     f.write(chunk)
                     total_size += len(chunk)
 
             file_count += 1
             logger.info(f"Saved file: {file.filename} ({total_size / 1024 / 1024:.2f} MB)")
 
-        # Check if any file is an archive (zip, tar, tar.gz)
-        archive_file = None
-        for file_path in upload_path.iterdir():
-            if file_path.suffix in [".zip", ".tar", ".gz"]:
-                archive_file = file_path
-                break
-
-        # Extract archive if found
-        if archive_file:
-            logger.info(f"Extracting archive: {archive_file.name}")
-            extract_path = upload_path / "extracted"
-            extract_path.mkdir(exist_ok=True)
-
-            if archive_file.suffix == ".zip":
-                with zipfile.ZipFile(archive_file, "r") as zip_ref:
-                    zip_ref.extractall(extract_path)
-            elif archive_file.suffix == ".tar" or archive_file.name.endswith(".tar.gz"):
-                with tarfile.open(archive_file, "r:*") as tar_ref:
-                    tar_ref.extractall(extract_path)
-
-            # Move extracted contents to main upload path
-            for item in extract_path.iterdir():
-                shutil.move(str(item), str(upload_path))
-
-            # Remove archive and extract directory
-            archive_file.unlink()
-            extract_path.rmdir()
-
-        # Detect dataset format if not provided
-        if dataset_format is None:
-            detected_format = _detect_dataset_format(upload_path)
-            if detected_format:
-                dataset_format = detected_format
-                logger.info(f"Detected dataset format: {dataset_format}")
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        "Could not detect dataset format. "
-                        "Supported formats: imagefolder, csv, coco, .zip"
-                    ),
-                )
-
-        supported_formats = {"imagefolder", "coco", "csv"}
-        if dataset_format not in supported_formats:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Unsupported dataset format: {dataset_format}. "
-                    "Supported formats: imagefolder, csv, coco, .zip"
-                ),
-            )
-
-        # Validate dataset structure
-        validation_result = _validate_dataset_structure(upload_path, dataset_format)
-        if not validation_result["valid"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid dataset structure: {validation_result['error']}",
-            )
-
         # Create database record
         dataset = Dataset(
             id=dataset_id,
             name=dataset_name,
-            format=dataset_format,
+            format=dataset_format or "unknown",
             upload_type="file_upload",
             local_path=str(upload_path),
             gcs_path=f"gs://{GCS_BUCKET}/{dataset_id}/",
             total_size_bytes=total_size,
             file_count=file_count,
-            num_samples=validation_result.get("num_samples", 0),
-            num_classes=validation_result.get("num_classes", 0),
-            status="uploaded",
+            num_samples=0,
+            num_classes=0,
+            status="processing",
             uploaded_by=current_user.id,
-            dataset_metadata=validation_result.get("metadata", {}),
+            dataset_metadata={},
         )
 
         db.add(dataset)
         await db.commit()
         await db.refresh(dataset)
 
-        logger.info(f"Dataset {dataset_id} uploaded successfully")
+        logger.info(f"Dataset {dataset_id} uploaded successfully, queueing background processing")
 
-        # Schedule background upload to GCS (if background_tasks provided)
         if background_tasks:
             background_tasks.add_task(
-                _upload_to_gcs_background,
+                _process_local_upload_background,
                 dataset_id,
                 str(upload_path),
-                f"gs://{GCS_BUCKET}/{dataset_id}/",
                 dataset_format,
-                None,
-                None,
-                None,
+                shard_strategy,
             )
 
         return DatasetUploadResponse(
             dataset_id=dataset_id,
             name=dataset_name,
-            format=dataset_format,
-            status="uploaded",
+            format=dataset_format or "unknown",
+            status="processing",
             total_size_bytes=total_size,
             file_count=file_count,
-            num_samples=validation_result.get("num_samples", 0),
-            num_classes=validation_result.get("num_classes", 0),
+            num_samples=0,
+            num_classes=0,
             local_path=str(upload_path),
             gcs_path=f"gs://{GCS_BUCKET}/{dataset_id}/",
             message="Dataset uploaded successfully. Processing in background.",
@@ -243,7 +177,7 @@ async def upload_dataset(
         )
 
     except HTTPException:
-        # Cleanup on user/input errors as well.
+        # Cleanup on user/input errors
         if upload_path.exists():
             shutil.rmtree(upload_path, ignore_errors=True)
         raise
@@ -426,6 +360,19 @@ async def delete_dataset(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this dataset"
         )
 
+    # Soft-Cancel active dependent jobs before dataset deletion
+    await db.execute(
+        update(Job)
+        .where(Job.dataset_id == dataset_id)
+        .where(Job.status.notin_(["completed", "failed"]))
+        .values(
+            status="failed",
+            error_message="Source dataset was deleted by user."
+        )
+    )
+    # Commit the failure state for jobs so they persist even if the file rm operations fail
+    await db.commit()
+
     # Delete local files
     if dataset.local_path and Path(dataset.local_path).exists():
         shutil.rmtree(dataset.local_path, ignore_errors=True)
@@ -433,10 +380,6 @@ async def delete_dataset(
     # Delete from GCS/MinIO
     if dataset.gcs_path:
         try:
-            import boto3
-            from botocore.config import Config
-            from google.auth.credentials import AnonymousCredentials
-            from google.cloud import storage
 
             def _parse_gcs_uri(uri: str) -> tuple[str, str]:
                 if not uri.startswith("gs://"):
@@ -540,6 +483,31 @@ def _detect_dataset_format(path: Path) -> Optional[str]:
     return None
 
 
+def _normalize_single_root_directory(path: Path) -> None:
+    """
+    Flatten extracted archives that contain a single wrapper directory.
+
+    Example:
+      /tmp/meshml-uploads/<id>/cifar10_imagefolder/<class dirs...>
+      -> /tmp/meshml-uploads/<id>/<class dirs...>
+    """
+    try:
+        entries = list(path.iterdir())
+        subdirs = [entry for entry in entries if entry.is_dir()]
+        files = [entry for entry in entries if entry.is_file()]
+
+        if files or len(subdirs) != 1:
+            return
+
+        wrapper = subdirs[0]
+        for child in wrapper.iterdir():
+            shutil.move(str(child), str(path / child.name))
+        wrapper.rmdir()
+        logger.info("Flattened single-root dataset directory: %s", wrapper.name)
+    except Exception as e:
+        logger.warning("Failed to normalize dataset root at %s: %s", path, e)
+
+
 def _validate_dataset_structure(path: Path, format: str) -> dict:
     """
     Validate dataset structure based on format
@@ -586,8 +554,6 @@ def _validate_imagefolder(path: Path) -> dict:
 
 def _validate_coco(path: Path) -> dict:
     """Validate COCO format"""
-    import json
-
     annotations_dir = path / "annotations"
     if not annotations_dir.exists():
         return {"valid": False, "error": "No annotations directory found"}
@@ -614,8 +580,6 @@ def _validate_coco(path: Path) -> dict:
 
 def _validate_csv(path: Path) -> dict:
     """Validate CSV format"""
-    import csv
-
     csv_files = list(path.glob("*.csv"))
     if not csv_files:
         return {"valid": False, "error": "No CSV files found"}
@@ -636,53 +600,20 @@ def _validate_csv(path: Path) -> dict:
 
 def _validate_xlsx(path: Path) -> dict:
     """Validate XLSX format"""
-    try:
-        import openpyxl
-    except ImportError:
-        # Try pandas as fallback
-        try:
-            import pandas as pd
-
-            xlsx_files = list(path.glob("*.xlsx")) + list(path.glob("*.xls"))
-            if not xlsx_files:
-                return {"valid": False, "error": "No XLSX files found"}
-
-            # Read first XLSX file
-            df = pd.read_excel(xlsx_files[0])
-            row_count = len(df)
-            columns = df.columns.tolist()
-
-            return {
-                "valid": True,
-                "num_samples": row_count,
-                "num_classes": 0,  # Can't determine from spreadsheet
-                "metadata": {"format": "xlsx", "columns": columns, "file": xlsx_files[0].name},
-            }
-        except ImportError:
-            return {"valid": False, "error": "openpyxl or pandas required for XLSX support"}
-
     xlsx_files = list(path.glob("*.xlsx")) + list(path.glob("*.xls"))
     if not xlsx_files:
         return {"valid": False, "error": "No XLSX files found"}
 
-    # Read first XLSX file with openpyxl
-    workbook = openpyxl.load_workbook(xlsx_files[0])
-    worksheet = workbook.active
-
-    # Count rows and get header
-    row_count = worksheet.max_row - 1  # Exclude header
-    header = [cell.value for cell in worksheet[1]]
+    # Read first XLSX file
+    df = pd.read_excel(xlsx_files[0])
+    row_count = len(df)
+    columns = df.columns.tolist()
 
     return {
         "valid": True,
         "num_samples": row_count,
         "num_classes": 0,  # Can't determine from spreadsheet
-        "metadata": {
-            "format": "xlsx",
-            "columns": header,
-            "file": xlsx_files[0].name,
-            "sheet_name": worksheet.title,
-        },
+        "metadata": {"format": "xlsx", "columns": columns, "file": xlsx_files[0].name},
     }
 
 
@@ -711,6 +642,98 @@ def _parse_dataset_url(url: str) -> str:
 # ==================== Background Tasks ====================
 
 
+async def _process_local_upload_background(
+    dataset_id: str,
+    upload_path_str: str,
+    dataset_format: Optional[str],
+    shard_strategy: Optional[str],
+):
+    """Process uploaded dataset in background: extract, validate, and trigger GCS upload"""
+    upload_path = Path(upload_path_str)
+    try:
+        # Check if any file is an archive (zip, tar, tar.gz)
+        archive_file = None
+        for file_path in upload_path.iterdir():
+            if file_path.suffix in [".zip", ".tar", ".gz"]:
+                archive_file = file_path
+                break
+
+        # Extract archive if found
+        if archive_file:
+            logger.info(f"Extracting archive in background: {archive_file.name}")
+            extract_path = upload_path / "extracted"
+            
+            def _extract_blocking():
+                extract_path.mkdir(exist_ok=True)
+                if archive_file.suffix == ".zip":
+                    with zipfile.ZipFile(archive_file, "r") as zip_ref:
+                        zip_ref.extractall(extract_path)
+                elif archive_file.suffix == ".tar" or archive_file.name.endswith(".tar.gz"):
+                    with tarfile.open(archive_file, "r:*") as tar_ref:
+                        tar_ref.extractall(extract_path)
+
+                # Move extracted contents to main upload path
+                for item in extract_path.iterdir():
+                    shutil.move(str(item), str(upload_path))
+
+                # Remove archive and extract directory
+                archive_file.unlink()
+                extract_path.rmdir()
+
+            await asyncio.to_thread(_extract_blocking)
+
+        # Flatten wrapper directory if archive extracted to a single top-level folder.
+        _normalize_single_root_directory(upload_path)
+
+        # Detect dataset format if not provided
+        if dataset_format is None:
+            detected_format = _detect_dataset_format(upload_path)
+            if detected_format:
+                dataset_format = detected_format
+                logger.info(f"Detected dataset format: {dataset_format}")
+            else:
+                raise ValueError(
+                    "Could not detect dataset format. "
+                    "Supported formats: imagefolder, coco, csv."
+                )
+
+        supported_formats = {"imagefolder", "coco", "csv", "xlsx"}
+        if dataset_format not in supported_formats:
+            raise ValueError(f"Unsupported dataset format: {dataset_format}")
+
+        # Validate dataset structure
+        validation_result = _validate_dataset_structure(upload_path, dataset_format)
+        if not validation_result["valid"]:
+            raise ValueError(f"Invalid dataset structure: {validation_result['error']}")
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(Dataset).where(Dataset.id == dataset_id))
+            dataset = result.scalar_one_or_none()
+            if dataset:
+                dataset.format = dataset_format
+                dataset.num_samples = validation_result.get("num_samples", 0)
+                dataset.num_classes = validation_result.get("num_classes", 0)
+                dataset.dataset_metadata = validation_result.get("metadata", {})
+                await session.commit()
+
+        # Chain to GCS upload & sharding
+        await _upload_to_gcs_background(
+            dataset_id=dataset_id,
+            local_path=str(upload_path),
+            gcs_path=f"gs://{GCS_BUCKET}/{dataset_id}/",
+            dataset_format=dataset_format,
+            num_shards=None,
+            shard_strategy=shard_strategy,
+            batch_size=None,
+        )
+
+    except Exception as e:
+        logger.error(f"Background processing failed for dataset {dataset_id}: {e}", exc_info=True)
+        if upload_path.exists():
+            shutil.rmtree(upload_path, ignore_errors=True)
+        await _mark_dataset_failed(dataset_id, str(e))
+
+
 async def _upload_to_gcs_background(
     dataset_id: str,
     local_path: str,
@@ -723,9 +746,6 @@ async def _upload_to_gcs_background(
     """Upload dataset to GCS in background and trigger sharding"""
     try:
         logger.info(f"Starting GCS upload for dataset {dataset_id}")
-        import boto3
-        from botocore.config import Config
-        from google.cloud import storage
 
         def _parse_gcs_uri(uri: str) -> tuple[str, str]:
             if not uri.startswith("gs://"):
@@ -749,40 +769,43 @@ async def _upload_to_gcs_background(
                 for filename in filenames
             ]
         emulator_url = os.getenv("STORAGE_EMULATOR_URL")
-        if emulator_url:
-            # MinIO/S3-compatible upload path for local dev.
-            s3_client = boto3.client(
-                "s3",
-                endpoint_url=emulator_url,
-                aws_access_key_id=(
-                    os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("MINIO_ROOT_USER") or "meshml"
-                ),
-                aws_secret_access_key=(
-                    os.getenv("AWS_SECRET_ACCESS_KEY")
-                    or os.getenv("MINIO_ROOT_PASSWORD")
-                    or "meshml_minio_password"
-                ),
-                region_name="us-east-1",
-                config=Config(signature_version="s3v4"),
-            )
-            try:
-                s3_client.head_bucket(Bucket=bucket_name)
-            except Exception:
-                s3_client.create_bucket(Bucket=bucket_name)
-            for file_path in files:
-                rel_path = str(file_path.relative_to(local_root)).replace(os.sep, "/")
-                object_key = f"{prefix}{rel_path}" if rel_path else prefix.rstrip("/")
-                s3_client.upload_file(str(file_path), bucket_name, object_key)
-        else:
-            storage_client = storage.Client()
-            bucket = storage_client.bucket(bucket_name)
-            if not bucket.exists():
-                bucket = storage_client.create_bucket(bucket_name)
-            for file_path in files:
-                rel_path = str(file_path.relative_to(local_root)).replace(os.sep, "/")
-                blob_name = f"{prefix}{rel_path}" if rel_path else prefix.rstrip("/")
-                blob = bucket.blob(blob_name)
-                blob.upload_from_filename(str(file_path))
+        def _blocking_upload():
+            if emulator_url:
+                # MinIO/S3-compatible upload path for local dev.
+                s3_client = boto3.client(
+                    "s3",
+                    endpoint_url=emulator_url,
+                    aws_access_key_id=(
+                        os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("MINIO_ROOT_USER") or "meshml"
+                    ),
+                    aws_secret_access_key=(
+                        os.getenv("AWS_SECRET_ACCESS_KEY")
+                        or os.getenv("MINIO_ROOT_PASSWORD")
+                        or "meshml_minio_password"
+                    ),
+                    region_name="us-east-1",
+                    config=Config(signature_version="s3v4"),
+                )
+                try:
+                    s3_client.head_bucket(Bucket=bucket_name)
+                except Exception:
+                    s3_client.create_bucket(Bucket=bucket_name)
+                for file_path in files:
+                    rel_path = str(file_path.relative_to(local_root)).replace(os.sep, "/")
+                    object_key = f"{prefix}{rel_path}" if rel_path else prefix.rstrip("/")
+                    s3_client.upload_file(str(file_path), bucket_name, object_key)
+            else:
+                storage_client = storage.Client()
+                bucket = storage_client.bucket(bucket_name)
+                if not bucket.exists():
+                    bucket = storage_client.create_bucket(bucket_name)
+                for file_path in files:
+                    rel_path = str(file_path.relative_to(local_root)).replace(os.sep, "/")
+                    blob_name = f"{prefix}{rel_path}" if rel_path else prefix.rstrip("/")
+                    blob = bucket.blob(blob_name)
+                    blob.upload_from_filename(str(file_path))
+
+        await asyncio.to_thread(_blocking_upload)
 
         logger.info(f"GCS upload completed for dataset {dataset_id}")
         async with AsyncSessionLocal() as session:
@@ -792,43 +815,6 @@ async def _upload_to_gcs_background(
                 dataset.status = "uploaded"
                 dataset.gcs_path = gcs_path
                 await session.commit()
-
-        client = DatasetSharderClient()
-        effective_num_shards = num_shards or 10
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(select(Dataset).where(Dataset.id == dataset_id))
-            dataset = result.scalar_one_or_none()
-            if dataset:
-                dataset.status = "sharding"
-                if dataset.num_samples and dataset.num_samples > 0:
-                    # Prevent sharder errors on tiny datasets.
-                    effective_num_shards = max(1, min(effective_num_shards, dataset.num_samples))
-                await session.commit()
-
-        request = dataset_sharder_pb2.ShardDatasetRequest(
-            dataset_id=dataset_id,
-            job_id="",
-            model_id="",
-            dataset_path=gcs_path,
-            format=dataset_format or "",
-            num_shards=effective_num_shards,
-            strategy=shard_strategy or "stratified",
-            batch_size=batch_size or 32,
-            seed=42,
-        )
-        response = await client.shard_dataset(request)
-        if not response.success:
-            raise RuntimeError(response.message or "Sharding failed")
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(select(Dataset).where(Dataset.id == dataset_id))
-            dataset = result.scalar_one_or_none()
-            if dataset:
-                dataset.status = "available"
-                dataset.num_shards = response.num_shards
-                dataset.shard_strategy = response.strategy or shard_strategy
-                dataset.sharded_at = datetime.utcnow()
-                await session.commit()
-        logger.info(f"Triggered sharding for dataset {dataset_id}")
     except Exception as e:
         logger.error(f"GCS upload failed for dataset {dataset_id}: {e}")
         await _mark_dataset_failed(dataset_id, str(e))
@@ -866,11 +852,16 @@ async def _download_from_url_background(dataset_id: str, url: str, format: str):
 
         # Extract if archive
         if file_path.suffix == ".zip":
-            with zipfile.ZipFile(file_path, "r") as zip_ref:
-                zip_ref.extractall(download_path)
-            file_path.unlink()
+            def _extract_url_blocking():
+                with zipfile.ZipFile(file_path, "r") as zip_ref:
+                    zip_ref.extractall(download_path)
+                file_path.unlink()
+            
+            await asyncio.to_thread(_extract_url_blocking)
 
         logger.info(f"Download completed for dataset {dataset_id}")
+
+        _normalize_single_root_directory(download_path)
 
         dataset_format = format
         if not dataset_format or dataset_format == "unknown":

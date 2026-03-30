@@ -24,9 +24,9 @@ from app.models.user import User
 from app.proto import task_orchestrator_pb2
 from app.routers.auth import get_current_user
 from app.schemas.job import JobCreateRequest, JobProgressResponse, JobResponse
-from app.utils.database import get_db
+from app.utils.database import get_db, AsyncSessionLocal
 from app.utils.redis_client import get_redis
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +40,7 @@ async def create_job(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     cache: redis.Redis = Depends(get_redis),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """
     Submit new training job
@@ -107,104 +108,147 @@ async def create_job(
     await db.commit()
     await db.refresh(job)
 
-    # Submit job to internal services via gRPC
-    try:
-        config = job.config or {}
-
-        def _get_int(value, default):
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return default
-
-        def _get_float(value, default):
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return default
-
-        requirements_cfg = config.get("requirements", {})
-        if not isinstance(requirements_cfg, dict):
-            requirements_cfg = {}
-
-        requirements = task_orchestrator_pb2.JobRequirements(
-            min_gpu_count=_get_int(requirements_cfg.get("min_gpu_count"), 0),
-            min_gpu_memory_gb=_get_float(requirements_cfg.get("min_gpu_memory_gb"), 0.0),
-            min_cpu_count=_get_int(requirements_cfg.get("min_cpu_count"), 1),
-            min_ram_gb=_get_float(requirements_cfg.get("min_ram_gb"), 1.0),
-            requires_cuda=bool(requirements_cfg.get("requires_cuda", False)),
-            requires_mps=bool(requirements_cfg.get("requires_mps", False)),
-            max_execution_time_seconds=_get_int(
-                requirements_cfg.get("max_execution_time_seconds"), 3600
-            ),
-        )
-
-        tags = {}
-        config_tags = config.get("tags")
-        if isinstance(config_tags, dict):
-            tags.update({str(k): str(v) for k, v in config_tags.items()})
-
-        for key in ["dataset_format", "num_shards", "shard_strategy"]:
-            if key in config:
-                tags[key] = str(config.get(key))
-
-        priority_value = config.get("priority", "MEDIUM")
-        if isinstance(priority_value, str):
-            priority_key = f"JOB_PRIORITY_{priority_value.upper()}"
-            if priority_key in task_orchestrator_pb2.JobPriority.keys():
-                priority = task_orchestrator_pb2.JobPriority.Value(priority_key)
-            else:
-                priority = task_orchestrator_pb2.JobPriority.Value("JOB_PRIORITY_MEDIUM")
-        elif isinstance(priority_value, int):
-            priority = priority_value if 0 <= priority_value <= 3 else 1
-        else:
-            priority = task_orchestrator_pb2.JobPriority.Value("JOB_PRIORITY_MEDIUM")
-
-        submission = task_orchestrator_pb2.JobSubmission(
+    # Queue background processing to unblock the UI instantly
+    if background_tasks:
+        background_tasks.add_task(
+            _initialize_job_background,
             job_id=str(job.id),
             group_id=str(job.group_id),
-            model_id=job.model_id or "",
-            dataset_id=job.dataset_id or "",
-            user_id=str(current_user.id),
-            batch_size=_get_int(config.get("batch_size"), 32),
-            num_epochs=_get_int(config.get("num_epochs"), 10),
-            learning_rate=_get_float(config.get("learning_rate"), 0.001),
-            optimizer=str(config.get("optimizer", "adam")),
-            requirements=requirements,
-            tags=tags,
-            description=str(config.get("description", "")),
-            priority=priority,
+            model_id=str(job.model_id) if job.model_id else None,
+            dataset_id=str(job.dataset_id) if job.dataset_id else None,
+            config=job.config,
+            current_user_id=str(current_user.id),
         )
 
-        if job.model_id:
-            try:
-                await cache.set(f"job:{job.id}:model_id", str(job.model_id))
-            except Exception:
-                pass
+    logger.info(f"Fast Job creation completed: queued sharding/orchestration for job {job.id}")
+    return job
 
-        # Strict architecture compliance: API Gateway triggers Dataset Sharder directly.
-        dataset_result = await db.execute(select(Dataset).where(Dataset.id == job.dataset_id))
-        dataset = dataset_result.scalar_one_or_none()
-        if not dataset or not dataset.gcs_path:
-            raise RuntimeError("Dataset is missing or has no storage path for sharding")
-
-        dataset_format = str(config.get("dataset_format") or dataset.format or "").lower()
-        num_shards = _get_int(config.get("num_shards"), 10)
-        if dataset.num_samples and dataset.num_samples > 0:
-            num_shards = max(1, min(num_shards, int(dataset.num_samples)))
-        shard_strategy = str(config.get("shard_strategy", "stratified"))
-        batch_size = _get_int(config.get("batch_size"), 32)
-        dataset_path = str(dataset.gcs_path)
-        if dataset_path and not dataset_path.endswith("/"):
-            dataset_path = f"{dataset_path}/"
-
+async def _initialize_job_background(
+    job_id: str,
+    group_id: str,
+    model_id: Optional[str],
+    dataset_id: Optional[str],
+    config: dict,
+    current_user_id: str,
+):
+    """Background task to shard dataset and deploy training pods."""
+    config = config or {}
+    
+    async with AsyncSessionLocal() as db:
         try:
+            import asyncio
+            def _get_int(value, default):
+                try: return int(value)
+                except (TypeError, ValueError): return default
+
+            def _get_float(value, default):
+                try: return float(value)
+                except (TypeError, ValueError): return default
+
+            requirements_cfg = config.get("requirements", {})
+            if not isinstance(requirements_cfg, dict):
+                requirements_cfg = {}
+
+            requirements = task_orchestrator_pb2.JobRequirements(
+                min_gpu_count=_get_int(requirements_cfg.get("min_gpu_count"), 0),
+                min_gpu_memory_gb=_get_float(requirements_cfg.get("min_gpu_memory_gb"), 0.0),
+                min_cpu_count=_get_int(requirements_cfg.get("min_cpu_count"), 1),
+                min_ram_gb=_get_float(requirements_cfg.get("min_ram_gb"), 1.0),
+                requires_cuda=bool(requirements_cfg.get("requires_cuda", False)),
+                requires_mps=bool(requirements_cfg.get("requires_mps", False)),
+                max_execution_time_seconds=_get_int(requirements_cfg.get("max_execution_time_seconds"), 3600),
+            )
+
+            tags = {}
+            config_tags = config.get("tags")
+            if isinstance(config_tags, dict):
+                tags.update({str(k): str(v) for k, v in config_tags.items()})
+
+            for key in ["dataset_format", "num_shards", "shard_strategy"]:
+                if key in config:
+                    tags[key] = str(config.get(key))
+
+            priority_value = config.get("priority", "MEDIUM")
+            if isinstance(priority_value, str):
+                priority_key = f"JOB_PRIORITY_{priority_value.upper()}"
+                if priority_key in task_orchestrator_pb2.JobPriority.keys():
+                    priority = task_orchestrator_pb2.JobPriority.Value(priority_key)
+                else:
+                    priority = task_orchestrator_pb2.JobPriority.Value("JOB_PRIORITY_MEDIUM")
+            elif isinstance(priority_value, int):
+                priority = priority_value if 0 <= priority_value <= 3 else 1
+            else:
+                priority = task_orchestrator_pb2.JobPriority.Value("JOB_PRIORITY_MEDIUM")
+
+            submission = task_orchestrator_pb2.JobSubmission(
+                job_id=job_id,
+                group_id=group_id,
+                model_id=model_id or "",
+                dataset_id=dataset_id or "",
+                user_id=current_user_id,
+                batch_size=_get_int(config.get("batch_size"), 32),
+                num_epochs=_get_int(config.get("num_epochs"), 10),
+                learning_rate=_get_float(config.get("learning_rate"), 0.001),
+                optimizer=str(config.get("optimizer", "adam")),
+                requirements=requirements,
+                tags=tags,
+                description=str(config.get("description", "")),
+                priority=priority,
+            )
+
+            if model_id:
+                try:
+                    from app.utils.redis_client import redis_client
+                    if redis_client:
+                        await redis_client.set(f"job:{job_id}:model_id", str(model_id))
+                except Exception:
+                    pass
+
+            # Async Polling Loop: Wait for dataset extraction/upload to finish
+            if not dataset_id:
+                raise RuntimeError("No dataset provided for job")
+                
+            while True:
+                dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+                dataset = dataset_result.scalar_one_or_none()
+                
+                if not dataset:
+                    raise RuntimeError("Dataset is missing from database")
+                    
+                if dataset.status in ["processing", "pending", "uploading"]:
+                    logger.info(f"Job {job_id} waiting for dataset {dataset_id} extraction/upload to complete... (status: {dataset.status})")
+                    await asyncio.sleep(3)
+                    continue
+                    
+                if dataset.status == "failed":
+                    raise RuntimeError(f"Dataset {dataset_id} failed to upload/extract.")
+                    
+                if dataset.status in ["uploaded", "available"]:
+                    logger.info(f"Dataset {dataset_id} is ready (status: {dataset.status}). Proceeding with task orchestration for Job {job_id}.")
+                    break
+                    
+                logger.warning(f"Unknown dataset status: {dataset.status}. Attempting to shard anyway.")
+                break
+
+            if not dataset.gcs_path:
+                raise RuntimeError("Dataset has no storage path for sharding")
+
+            dataset_format = str(config.get("dataset_format") or dataset.format or "").lower()
+            num_shards = _get_int(config.get("num_shards"), 10)
+            if dataset.num_samples and dataset.num_samples > 0:
+                num_shards = max(1, min(num_shards, int(dataset.num_samples)))
+            shard_strategy = str(config.get("shard_strategy", "stratified"))
+            batch_size = _get_int(config.get("batch_size"), 32)
+            dataset_path = str(dataset.gcs_path)
+            if dataset_path and not dataset_path.endswith("/"):
+                dataset_path = f"{dataset_path}/"
+                
             sharder = DatasetSharderClient()
             shard_response = await sharder.shard_dataset(
                 dataset_sharder_pb2.ShardDatasetRequest(
-                    dataset_id=str(job.dataset_id),
-                    job_id=str(job.id),
-                    model_id=str(job.model_id or ""),
+                    dataset_id=dataset_id,
+                    job_id=job_id,
+                    model_id=model_id or "",
                     dataset_path=dataset_path,
                     format=dataset_format,
                     num_shards=num_shards,
@@ -215,58 +259,24 @@ async def create_job(
             )
             if not shard_response.success:
                 raise RuntimeError(shard_response.message or "Dataset sharding failed")
-            logger.info(
-                "Sharding completed for job %s: dataset=%s batches=%s",
-                job.id,
-                job.dataset_id,
-                shard_response.total_batches,
-            )
-        except Exception as e:
-            logger.exception("Failed to trigger dataset sharding for job %s: %s", job.id, e)
-            err_message = str(e)
-            if "num_shards" in err_message and "exceeds total samples" in err_message:
-                err_message = (
-                    "Dataset is too small for current shard count. "
-                    "Reduce num_shards in job config or upload a larger dataset."
-                )
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to trigger dataset sharding: {err_message}",
-            )
+            
+            logger.info("Sharding completed for job %s: dataset=%s batches=%s", job_id, dataset_id, shard_response.total_batches)
 
-        try:
             orchestrator = TaskOrchestratorClient()
             response = await orchestrator.initiate_training(submission)
             if not response.success:
                 raise RuntimeError(response.message or "submission failed")
-        except Exception as e:
-            logger.exception("Failed to submit job %s to Task Orchestrator: %s", job.id, e)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to submit job to Task Orchestrator: {e}",
-            )
 
-        logger.info(f"Job submitted to Task Orchestrator: {job.id}")
-        return job
-    except HTTPException as http_exc:
-        job.status = "failed"
-        detail = getattr(http_exc, "detail", None)
-        job.error_message = str(detail or "Job submission failed")[:1000]
-        try:
-            await db.commit()
-        except Exception:
-            await db.rollback()
-            logger.exception("Failed to persist failed job status for job %s", job.id)
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to submit job to internal services: {e}")
-        job.status = "failed"
-        job.error_message = f"Job submission failed: {e}"
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to submit job: {e}",
-        )
+            logger.info(f"Job submitted to Task Orchestrator: {job_id}")
+
+        except Exception as e:
+            logger.exception(f"Failed to submit job {job_id} to internal services: {e}")
+            job_result = await db.execute(select(Job).where(Job.id == job_id))
+            job = job_result.scalar_one_or_none()
+            if job:
+                job.status = "failed"
+                job.error_message = f"Job submission failed: {e}"[:1000]
+                await db.commit()
 
 
 @router.get("", response_model=List[JobResponse])

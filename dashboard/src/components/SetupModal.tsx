@@ -43,6 +43,7 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [targetVersion, setTargetVersion] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [shardingStrategy, setShardingStrategy] = useState('stratified');
 
@@ -106,17 +107,8 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
       toast.warning('Select a dataset file before continuing.');
       return;
     }
-    setLoading(true);
-    try {
-      const res = await datasetsAPI.uploadDataset([datasetFile]);
-      setDatasetId(res.dataset_id);
-      setStep(2);
-    } catch (err) {
-      console.error('Failed to upload dataset', err);
-      toast.error(getErrorMessage(err, 'Failed to upload dataset.'));
-    } finally {
-      setLoading(false);
-    }
+    // Fast Upload: We defer actual file uploading until Start Job
+    setStep(2);
   };
 
   const handleCodeStepSubmit = async () => {
@@ -157,15 +149,38 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
     }
     setLoading(true);
     try {
+      let finalDatasetId = datasetId;
+
+      if (datasetMode === 'upload' && datasetFile) {
+        toast.info('Uploading and validating dataset...');
+        // Fast Upload pattern: dataset triggers background extraction
+        const res = await datasetsAPI.uploadDataset(
+          [datasetFile], 
+          shardingStrategy,
+          undefined,
+          undefined,
+          (progressEvent) => {
+            if (progressEvent.total) {
+              const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+              setUploadProgress(percent);
+            }
+          }
+        );
+        finalDatasetId = res.dataset_id;
+      }
+
       // POST /api/jobs (JobCreateRequest payload)
       const job = await jobsAPI.createJob({ 
         group_id: groupId,
-        dataset_id: datasetId || undefined,
-        config: { final_version: Math.floor(parsedTarget) },
-        sharding_strategy: shardingStrategy
+        dataset_id: finalDatasetId || undefined,
+        config: { 
+          final_version: Math.floor(parsedTarget),
+          shard_strategy: shardingStrategy
+        }
       });
       // Immediately routes user to Live Dashboard
       toast.success('Training run started successfully.');
+      setUploadProgress(0);
       onClose();
       navigate(`/jobs/${job.id}/live`);
     } catch (err) {
@@ -261,7 +276,7 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
                 <input
                   ref={datasetInputRef}
                   type="file"
-                  accept=".zip"
+                  accept=".zip,.tar,.gz,.tar.gz"
                   className="hidden"
                   onChange={(e) => { if (e.target.files?.[0]) setDatasetFile(e.target.files[0]); }}
                 />
@@ -276,7 +291,7 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
                     <UploadCloud className="w-8 h-8 text-slate-400 group-hover:text-cyan-500 mb-4 transition-colors" />
                     <p className="text-sm font-medium text-slate-900 dark:text-slate-50">Drag & drop dataset here</p>
                     <p className="text-xs text-slate-500 font-mono mt-2">
-                      Supported: .zip, imagefolder, csv, coco (auto-detected)
+                      Supported: .zip, .tar, .tar.gz (imagefolder, csv, coco is auto-detected)
                     </p>
                   </>
                 )}
@@ -443,7 +458,11 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
                 </button>
                 <button onClick={handleStartJob} disabled={loading} className="bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium py-2 px-6 flex items-center space-x-2 transition-colors disabled:opacity-50">
                   <Play className="w-4 h-4 fill-current" />
-                  <span>{loading ? 'STARTING...' : 'START JOB'}</span>
+                  <span>
+                    {loading 
+                      ? (uploadProgress > 0 && uploadProgress < 100 ? `UPLOADING (${uploadProgress}%)...` : 'STARTING...') 
+                      : 'START JOB'}
+                  </span>
                 </button>
               </div>
             </div>

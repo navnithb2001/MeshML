@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Download, CheckCircle, Clock, XCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Download, CheckCircle, Clock, XCircle, Loader2, Trash2 } from 'lucide-react';
 import { jobsAPI, modelsAPI } from '@/lib/api';
 import { useToast } from '@/components/Toast';
+import ConfirmModal from '@/components/ConfirmModal';
 import clsx from 'clsx';
 
 interface JobInfo {
@@ -21,6 +22,8 @@ export default function Cockpit() {
   const [job, setJob] = useState<JobInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -58,6 +61,22 @@ export default function Cockpit() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!id) return;
+    setDeleting(true);
+    try {
+      await jobsAPI.cancelJob(id);
+      toast.success('Job deleted successfully');
+      navigate(-1);
+    } catch (err) {
+      console.error('Failed to delete job', err);
+      toast.error('Failed to delete job');
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   const statusUpper = (job?.status || '').toUpperCase();
   const StatusIcon = statusUpper === 'COMPLETED' ? CheckCircle :
                      statusUpper === 'FAILED' || statusUpper === 'CANCELLED' ? XCircle :
@@ -72,18 +91,28 @@ export default function Cockpit() {
   return (
     <div className="h-full flex flex-col space-y-4">
       {/* Header */}
-      <div className="flex items-center space-x-4 shrink-0">
-        <button onClick={() => navigate(-1)} className="p-2 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors text-slate-500">
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight uppercase text-slate-900 dark:text-slate-50">
-            Job Details
-          </h1>
-          <p className="text-sm font-mono text-slate-500 dark:text-slate-400 mt-1">
-            {id}
-          </p>
+      <div className="flex items-center justify-between shrink-0">
+        <div className="flex items-center space-x-4">
+          <button onClick={() => navigate(-1)} className="p-2 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors text-slate-500">
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight uppercase text-slate-900 dark:text-slate-50">
+              Job Details
+            </h1>
+            <p className="text-sm font-mono text-slate-500 dark:text-slate-400 mt-1">
+              {id}
+            </p>
+          </div>
         </div>
+        <button
+          onClick={() => setShowDeleteConfirm(true)}
+          disabled={deleting}
+          className="flex items-center gap-2 px-4 py-2 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-50 text-sm font-medium uppercase tracking-wider transition-colors"
+        >
+          {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+          Delete Job
+        </button>
       </div>
 
       {loading ? (
@@ -166,6 +195,16 @@ export default function Cockpit() {
           JOB_NOT_FOUND
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        title="Delete Job"
+        message="Are you sure you want to delete this job? This action cannot be undone."
+        detail={id}
+        confirmLabel="Delete Job"
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }
