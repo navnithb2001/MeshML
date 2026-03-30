@@ -108,7 +108,11 @@ class GCSClient:
             "content_type": "text/x-python",
         }
 
-        blob.upload_from_string(file_content, content_type="text/x-python")
+        import asyncio
+
+        await asyncio.to_thread(
+            blob.upload_from_string, file_content, content_type="text/x-python"
+        )
 
         logger.info(f"Uploaded model {model_id} to {blob_path} ({file_size} bytes)")
 
@@ -129,7 +133,9 @@ class GCSClient:
         blob = self.bucket.blob(blob_path)
 
         try:
-            content = blob.download_as_bytes()
+            import asyncio
+
+            content = await asyncio.to_thread(blob.download_as_bytes)
             logger.info(f"Downloaded model {model_id} from {blob_path}")
             return content
         except NotFound:
@@ -175,7 +181,9 @@ class GCSClient:
         blob = self.bucket.blob(blob_path)
 
         try:
-            blob.delete()
+            import asyncio
+
+            await asyncio.to_thread(blob.delete)
             logger.info(f"Deleted model {model_id} from {blob_path}")
             return True
         except NotFound:
@@ -186,7 +194,9 @@ class GCSClient:
         """Check if model file exists in GCS"""
         blob_path = self.get_model_path(model_id, filename)
         blob = self.bucket.blob(blob_path)
-        return blob.exists()
+        import asyncio
+
+        return await asyncio.to_thread(blob.exists)
 
     async def get_file_metadata(self, model_id: int, filename: str = "model.py") -> dict:
         """Get file metadata from GCS"""
@@ -194,7 +204,9 @@ class GCSClient:
         blob = self.bucket.blob(blob_path)
 
         try:
-            blob.reload()
+            import asyncio
+
+            await asyncio.to_thread(blob.reload)
             return {
                 "size": blob.size,
                 "content_type": blob.content_type,

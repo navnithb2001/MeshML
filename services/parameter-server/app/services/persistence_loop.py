@@ -103,9 +103,11 @@ class PersistenceLoop:
 
         last_checkpoint = self._get_last_checkpoint(job_id)
         if current_version - last_checkpoint >= self.checkpoint_interval:
-            weights = self._load_weights(job_id, current_version)
+            import asyncio
+
+            weights = await asyncio.to_thread(self._load_weights, job_id, current_version)
             if weights is not None:
-                payload = self._serialize_weights(weights)
+                payload = await asyncio.to_thread(self._serialize_weights, weights)
                 await self.model_registry.upload_checkpoint(
                     model_id=model_id, checkpoint_type=f"v{current_version}", state_dict=payload
                 )
@@ -115,9 +117,11 @@ class PersistenceLoop:
                 )
 
         if current_version >= self.final_version and not self._final_saved(job_id):
-            weights = self._load_weights(job_id, current_version)
+            import asyncio
+
+            weights = await asyncio.to_thread(self._load_weights, job_id, current_version)
             if weights is not None:
-                payload = self._serialize_weights(weights)
+                payload = await asyncio.to_thread(self._serialize_weights, weights)
                 await self.model_registry.upload_final_model(model_id=model_id, state_dict=payload)
                 self._set_final_saved(job_id)
                 logger.info(

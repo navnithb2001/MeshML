@@ -51,8 +51,10 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
                         grpc.StatusCode.INVALID_ARGUMENT, "Unsupported dataset format"
                     )
 
+            import asyncio
+
             loader = create_loader(request.dataset_path, format=dataset_format)
-            metadata = loader.load_metadata()
+            metadata = await asyncio.to_thread(loader.load_metadata)
 
             try:
                 strategy = ShardingStrategy(request.strategy or "stratified")
@@ -70,14 +72,17 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
             )
 
             sharder = DatasetSharder(loader, config)
-            shards = sharder.create_shards()
+            shards = await asyncio.to_thread(sharder.create_shards)
 
             total_batches = 0
             shard_summaries: List[dataset_sharder_pb2.ShardSummary] = []
             all_batches = []
             for shard in shards:
-                batches = self.batch_manager.create_batches_from_shard(
-                    shard=shard, loader=loader, batch_size=batch_size
+                batches = await asyncio.to_thread(
+                    self.batch_manager.create_batches_from_shard,
+                    shard=shard,
+                    loader=loader,
+                    batch_size=batch_size,
                 )
                 total_batches += len(batches)
                 all_batches.extend(batches)
