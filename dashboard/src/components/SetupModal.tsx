@@ -45,6 +45,7 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const [shardingStrategy, setShardingStrategy] = useState('stratified');
 
   // File Upload State
@@ -312,8 +313,15 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
           {/* Step 2: Code */}
           {step === 2 && (
             <div className="space-y-4 animate-in fade-in zoom-in duration-200">
-              <div className="text-xs font-mono uppercase text-slate-500 mb-2 flex justify-between">
-                <span>Step 2/3: Model Architecture</span>
+              <div className="flex justify-between items-center mb-2">
+                <div className="text-xs font-mono uppercase text-slate-500">Step 2/3: Model Architecture</div>
+                <button
+                  onClick={() => setShowHelpModal(true)}
+                  className="text-xs font-medium uppercase tracking-wider px-3 py-1.5 border border-amber-600 text-amber-600 dark:border-amber-500 dark:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors flex items-center gap-1.5"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                  Code Format Guide
+                </button>
               </div>
               
               <div className="space-y-2">
@@ -469,6 +477,171 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
           )}
         </div>
       </div>
+
+      {/* Code Format Help Modal (Overlay) */}
+      {showHelpModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in">
+          <div className="w-full max-w-4xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 p-4 shrink-0 bg-slate-50 dark:bg-slate-950">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-50 flex items-center gap-2">
+                <Code className="w-4 h-4 text-amber-500" />
+                Required Python Model Format
+              </h2>
+              <button onClick={() => setShowHelpModal(false)} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors text-slate-500">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-6">
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                MeshML requires your PyTorch <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-xs">model.py</code> file to globally export two things: a <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-xs">MODEL_METADATA</code> dictionary and a <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-xs">create_model()</code> factory function.
+              </p>
+
+              {/* ---- Parameter Reference ---- */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-50 mb-3">MODEL_METADATA Parameter Reference</h3>
+                <div className="border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden text-xs">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-800/60 text-left">
+                        <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-300 w-[140px]">Parameter</th>
+                        <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-300">Description</th>
+                        <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-300 w-[180px]">Accepted Values</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-slate-600 dark:text-slate-400">
+                      <tr><td className="px-3 py-2 font-mono text-cyan-600 dark:text-cyan-400">name</td><td className="px-3 py-2">A human-readable identifier for your model. Used in the dashboard and logs.</td><td className="px-3 py-2 font-mono">any string</td></tr>
+                      <tr><td className="px-3 py-2 font-mono text-cyan-600 dark:text-cyan-400">version</td><td className="px-3 py-2">Semantic version tag. Helps track model iterations across training runs.</td><td className="px-3 py-2 font-mono">"1.0", "2.1", etc.</td></tr>
+                      <tr><td className="px-3 py-2 font-mono text-cyan-600 dark:text-cyan-400">framework</td><td className="px-3 py-2">The ML framework used. Currently only PyTorch is supported.</td><td className="px-3 py-2 font-mono">"pytorch"</td></tr>
+                      <tr><td className="px-3 py-2 font-mono text-cyan-600 dark:text-cyan-400">input_shape</td><td className="px-3 py-2">Shape of a single input sample <strong>without</strong> the batch dimension. Workers use this to validate data shards.</td><td className="px-3 py-2 font-mono">[C, H, W] or [features]</td></tr>
+                      <tr><td className="px-3 py-2 font-mono text-cyan-600 dark:text-cyan-400">output_shape</td><td className="px-3 py-2">Shape of the model's output tensor. Typically [num_classes] for classifiers or [1] for regressors.</td><td className="px-3 py-2 font-mono">[N] list of ints</td></tr>
+                      <tr className="bg-amber-50/50 dark:bg-amber-950/10"><td className="px-3 py-2 font-mono text-amber-600 dark:text-amber-400">task_type</td><td className="px-3 py-2">Determines the training loop behavior — how loss is computed and which metrics are tracked.</td><td className="px-3 py-2 font-mono">"classification" | "regression" | "binary"</td></tr>
+                      <tr className="bg-amber-50/50 dark:bg-amber-950/10"><td className="px-3 py-2 font-mono text-amber-600 dark:text-amber-400">loss</td><td className="px-3 py-2">The loss function the worker will use. Must match the task type (e.g., cross_entropy for classification, mse for regression).</td><td className="px-3 py-2 font-mono">"cross_entropy" | "mse" | "mae" | "bce" | "bce_with_logits"</td></tr>
+                      <tr className="bg-amber-50/50 dark:bg-amber-950/10"><td className="px-3 py-2 font-mono text-amber-600 dark:text-amber-400">metrics</td><td className="px-3 py-2">List of evaluation metrics computed after each batch/epoch and streamed to the dashboard.</td><td className="px-3 py-2 font-mono">["accuracy"] | ["mse", "r2"] | ["accuracy", "f1"]</td></tr>
+                      <tr><td className="px-3 py-2 font-mono text-cyan-600 dark:text-cyan-400">num_outputs</td><td className="px-3 py-2">Number of output neurons. For classification = num_classes; for regression = 1 (or target dims).</td><td className="px-3 py-2 font-mono">positive integer</td></tr>
+                      <tr><td className="px-3 py-2 font-mono text-cyan-600 dark:text-cyan-400">target_dtype</td><td className="px-3 py-2">PyTorch dtype for labels. Classification uses "long" (integer class IDs); regression uses "float".</td><td className="px-3 py-2 font-mono">"long" | "float"</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* ---- Task Type Quick Reference ---- */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-50 mb-3">Task Type Quick Reference</h3>
+                <div className="grid grid-cols-3 gap-3 text-xs">
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-md p-3 space-y-1">
+                    <div className="font-semibold text-slate-900 dark:text-slate-50">Classification</div>
+                    <div className="text-slate-500 dark:text-slate-400">Multi-class prediction (e.g., CIFAR-10, ImageNet)</div>
+                    <div className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">loss: "cross_entropy" · target_dtype: "long"</div>
+                  </div>
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-md p-3 space-y-1">
+                    <div className="font-semibold text-slate-900 dark:text-slate-50">Binary</div>
+                    <div className="text-slate-500 dark:text-slate-400">Two-class prediction (e.g., spam/not-spam, cat/dog)</div>
+                    <div className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">loss: "bce_with_logits" · target_dtype: "float"</div>
+                  </div>
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-md p-3 space-y-1">
+                    <div className="font-semibold text-slate-900 dark:text-slate-50">Regression</div>
+                    <div className="text-slate-500 dark:text-slate-400">Continuous value prediction (e.g., price, temperature)</div>
+                    <div className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">loss: "mse" | "mae" · target_dtype: "float"</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ---- Example Code ---- */}
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-slate-50 mb-3">Complete Example — CIFAR-10 CNN (Classification)</h3>
+              <div className="bg-slate-950 rounded-md border border-slate-800 overflow-hidden">
+                <div className="flex items-center space-x-2 px-4 py-2 bg-slate-900 border-b border-slate-800">
+                  <div className="w-3 h-3 rounded-full bg-rose-500" />
+                  <div className="w-3 h-3 rounded-full bg-amber-500" />
+                  <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                  <span className="text-xs font-mono text-slate-500 ml-2">model.py</span>
+                </div>
+                <pre className="p-4 text-xs font-mono text-slate-300 overflow-x-auto whitespace-pre">
+{`import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+# =============================================================================
+# MESHML CONTRACT: Model Metadata
+# The worker will parse this to dynamically configure the loss and metrics.
+# =============================================================================
+MODEL_METADATA = {
+    # --- Required Base Fields ---
+    "name": "cifar10-cnn",
+    "version": "1.0",
+    "framework": "pytorch",
+    "input_shape": [3, 32, 32], # [Channels, Height, Width]
+    "output_shape": [10],       # 10 classes
+    
+    # --- Task/Math Definition Fields ---
+    "task_type": "classification",
+    "loss": "cross_entropy",
+    "metrics": ["accuracy"],
+    "num_outputs": 10,  
+    "target_dtype": "long" 
+}
+
+# =============================================================================
+# PYTORCH ARCHITECTURE: CIFAR-10 CNN
+# Input: 3 channels (RGB), 32x32 pixels.
+# Output: 10 logits (one for each class).
+# =============================================================================
+class CIFAR10Net(nn.Module):
+    def __init__(self):
+        super(CIFAR10Net, self).__init__()
+        
+        # Block 1: 3x32x32 -> 32x16x16
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
+        self.pool1 = nn.MaxPool2d(2, 2)
+        
+        # Block 2: 32x16x16 -> 64x8x8
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.pool2 = nn.MaxPool2d(2, 2)
+        
+        # Block 3: 64x8x8 -> 128x4x4
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.pool3 = nn.MaxPool2d(2, 2)
+        
+        # Fully Connected Layers
+        # Flattened size: 128 channels * 4 * 4 = 2048
+        self.fc1 = nn.Linear(128 * 4 * 4, 512)
+        self.dropout = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(512, 10)
+
+    def forward(self, x):
+        # Apply convolutions, ReLU, and pooling
+        x = self.pool1(F.relu(self.conv1(x)))
+        x = self.pool2(F.relu(self.conv2(x)))
+        x = self.pool3(F.relu(self.conv3(x)))
+        
+        # Flatten the tensor for the fully connected layers
+        x = x.view(-1, 128 * 4 * 4)
+        
+        # Apply dense layers and dropout
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = self.fc2(x) # Return raw logits for CrossEntropyLoss
+        
+        return x
+
+# =============================================================================
+# MESHML CONTRACT: Entry Point
+# The worker will call this function to instantiate the model.
+# =============================================================================
+def create_model():
+    """
+    Returns an instance of the model. MeshML workers will automatically 
+    distribute this instance and wrap it in the training loop.
+    """
+    return CIFAR10Net()`}
+                </pre>
+              </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

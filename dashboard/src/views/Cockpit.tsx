@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Download, CheckCircle, Clock, XCircle, Loader2, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, CheckCircle, Clock, XCircle, Loader2 } from 'lucide-react';
 import { jobsAPI, modelsAPI } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import ConfirmModal from '@/components/ConfirmModal';
@@ -11,7 +11,8 @@ interface JobInfo {
   status: string;
   model_id: string | null;
   dataset_id: string | null;
-  progress: { current_batch?: number; total_batches?: number } | null;
+  config: Record<string, any> | null;
+  progress: { current_batch?: number; total_batches?: number; loss?: number; accuracy?: number } | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -61,16 +62,16 @@ export default function Cockpit() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleCancel = async () => {
     if (!id) return;
     setDeleting(true);
     try {
       await jobsAPI.cancelJob(id);
-      toast.success('Job deleted successfully');
+      toast.success('Job cancelled successfully');
       navigate(-1);
     } catch (err) {
-      console.error('Failed to delete job', err);
-      toast.error('Failed to delete job');
+      console.error('Failed to cancel job', err);
+      toast.error('Failed to cancel job');
     } finally {
       setDeleting(false);
       setShowDeleteConfirm(false);
@@ -78,6 +79,7 @@ export default function Cockpit() {
   };
 
   const statusUpper = (job?.status || '').toUpperCase();
+  const allowCancel = !['COMPLETED', 'FAILED', 'CANCELLED'].includes(statusUpper);
   const StatusIcon = statusUpper === 'COMPLETED' ? CheckCircle :
                      statusUpper === 'FAILED' || statusUpper === 'CANCELLED' ? XCircle :
                      statusUpper === 'PENDING' || statusUpper === 'WAITING' ? Clock :
@@ -107,11 +109,11 @@ export default function Cockpit() {
         </div>
         <button
           onClick={() => setShowDeleteConfirm(true)}
-          disabled={deleting}
+          disabled={deleting || !allowCancel}
           className="flex items-center gap-2 px-4 py-2 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-50 text-sm font-medium uppercase tracking-wider transition-colors"
         >
-          {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-          Delete Job
+          {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+          Cancel Job
         </button>
       </div>
 
@@ -138,11 +140,33 @@ export default function Cockpit() {
               <div className="text-xs uppercase tracking-widest text-slate-500">Dataset ID</div>
               <div className="font-mono text-sm text-slate-900 dark:text-slate-50">{job.dataset_id || '---'}</div>
             </div>
+            {job.config?.task_type && (
+              <div className="space-y-1">
+                <div className="text-xs uppercase tracking-widest text-slate-500">Task Type</div>
+                <div className="font-mono text-lg text-slate-900 dark:text-slate-50 capitalize">{job.config.task_type}</div>
+              </div>
+            )}
             {job.progress && (
               <div className="space-y-1">
                 <div className="text-xs uppercase tracking-widest text-slate-500">Batches</div>
                 <div className="font-mono text-lg text-slate-900 dark:text-slate-50">
                   {job.progress.current_batch ?? 0} / {job.progress.total_batches ?? '?'}
+                </div>
+              </div>
+            )}
+            {job.progress && typeof job.progress.loss === 'number' && (
+              <div className="space-y-1">
+                <div className="text-xs uppercase tracking-widest text-slate-500">Current Loss</div>
+                <div className="font-mono text-lg text-amber-600 dark:text-amber-500">
+                  {job.progress.loss.toFixed(4)}
+                </div>
+              </div>
+            )}
+            {job.progress && typeof job.progress.accuracy === 'number' && (
+              <div className="space-y-1">
+                <div className="text-xs uppercase tracking-widest text-slate-500">Training Acc</div>
+                <div className="font-mono text-lg text-emerald-600 dark:text-emerald-500">
+                  {(job.progress.accuracy * 100).toFixed(2)}%
                 </div>
               </div>
             )}
@@ -198,12 +222,12 @@ export default function Cockpit() {
 
       <ConfirmModal
         isOpen={showDeleteConfirm}
-        title="Delete Job"
-        message="Are you sure you want to delete this job? This action cannot be undone."
+        title="Cancel Job"
+        message="Are you sure you want to cancel this job? This action will terminate training and cannot be undone."
         detail={id}
-        confirmLabel="Delete Job"
+        confirmLabel="Cancel Job"
         onCancel={() => setShowDeleteConfirm(false)}
-        onConfirm={handleDelete}
+        onConfirm={handleCancel}
       />
     </div>
   );
