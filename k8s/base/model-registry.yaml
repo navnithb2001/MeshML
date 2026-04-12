@@ -6,7 +6,7 @@ metadata:
   labels:
     app: model-registry
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: model-registry
@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: model-registry
-        image: gcr.io/PROJECT_ID/meshml-model-registry:latest
+        image: us-central1-docker.pkg.dev/meshml-platform/meshml-repo/model-registry:latest
         ports:
         - containerPort: 8004
           name: http
@@ -28,25 +28,36 @@ spec:
             name: meshml-config
         - secretRef:
             name: meshml-secrets
+        env:
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /var/secrets/gcs/key.json
+        volumeMounts:
+        - name: gcs-signing-key
+          mountPath: /var/secrets/gcs
+          readOnly: true
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
+            memory: "128Mi"
+            cpu: "20m"
           limits:
-            memory: "1Gi"
+            memory: "512Mi"
             cpu: "500m"
         livenessProbe:
           httpGet:
             path: /health
             port: 8004
-          initialDelaySeconds: 30
+          initialDelaySeconds: 120
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
             port: 8004
-          initialDelaySeconds: 10
+          initialDelaySeconds: 90
           periodSeconds: 5
+      volumes:
+      - name: gcs-signing-key
+        secret:
+          secretName: gcs-signing-key
 
 ---
 apiVersion: v1
@@ -58,7 +69,6 @@ metadata:
     app: model-registry
 spec:
   type: ClusterIP
-  clusterIP: None
   ports:
   - port: 8004
     targetPort: 8004

@@ -799,7 +799,13 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
 def create_grpc_services() -> TaskOrchestratorServicer:
     redis_host = os.getenv("REDIS_HOST", "redis")
     redis_port = int(os.getenv("REDIS_PORT", "6379"))
-    redis_client = Redis(host=redis_host, port=redis_port, decode_responses=False)
+    redis_password = os.getenv("REDIS_PASSWORD", None)
+    redis_client = Redis(
+        host=redis_host, 
+        port=redis_port, 
+        password=redis_password,
+        decode_responses=False
+    )
 
     worker_registry = WorkerRegistry()
     job_queue = JobQueue(redis_client)

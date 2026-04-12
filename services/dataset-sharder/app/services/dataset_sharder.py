@@ -356,9 +356,29 @@ class DatasetSharder:
             return self._cached_groups
 
         labels_by_idx = []
-        for batch in self.loader.stream_samples(batch_size=1000):
-            for sample in batch:
-                labels_by_idx.append(sample.label)
+        
+        # Fast path for known loaders to avoid downloading the entire dataset
+        loader_type = type(self.loader).__name__
+        if loader_type == "ImageFolderLoader":
+            if not self.loader.metadata:
+                self.loader.load_metadata()
+            labels_by_idx = [label for _, label in self.loader.samples]
+        elif loader_type == "COCOLoader":
+            if not self.loader.metadata:
+                self.loader.load_metadata()
+            for img_info in self.loader.coco_data["images"]:
+                image_id = img_info["id"]
+                annotations = self.loader.image_id_to_annotations.get(image_id, [])
+                labels_by_idx.append(annotations[0]["category_id"] if annotations else -1)
+        elif loader_type == "CSVLoader":
+            if not self.loader.metadata:
+                self.loader.load_metadata()
+            labels_by_idx = [row[self.loader.label_column] for row in self.loader.data]
+        else:
+            logger.info("Falling back to stream_samples() for label extraction.")
+            for batch in self.loader.stream_samples(batch_size=1000):
+                for sample in batch:
+                    labels_by_idx.append(sample.label)
                 
         labels_array = np.array(labels_by_idx)
         is_continuous = False

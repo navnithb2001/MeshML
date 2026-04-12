@@ -209,6 +209,13 @@ async def _initialize_job_background(
                 raise RuntimeError("No dataset provided for job")
                 
             while True:
+                # Check if job was cancelled
+                job_result = await db.execute(select(Job).where(Job.id == job_id))
+                current_job = job_result.scalar_one_or_none()
+                if current_job and current_job.status in ["cancelled", "failed"]:
+                    logger.info(f"Job {job_id} was cancelled or failed. Stopping background initialization.")
+                    return
+
                 dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
                 dataset = dataset_result.scalar_one_or_none()
                 
@@ -243,6 +250,9 @@ async def _initialize_job_background(
             if dataset_path and not dataset_path.endswith("/"):
                 dataset_path = f"{dataset_path}/"
                 
+            dataset.status = "sharding"
+            await db.commit()
+            
             sharder = DatasetSharderClient()
             shard_response = await sharder.shard_dataset(
                 dataset_sharder_pb2.ShardDatasetRequest(
@@ -260,6 +270,9 @@ async def _initialize_job_background(
             if not shard_response.success:
                 raise RuntimeError(shard_response.message or "Dataset sharding failed")
             
+            dataset.status = "available"
+            await db.commit()
+            
             logger.info("Sharding completed for job %s: dataset=%s batches=%s", job_id, dataset_id, shard_response.total_batches)
 
             orchestrator = TaskOrchestratorClient()
@@ -276,6 +289,13 @@ async def _initialize_job_background(
             if job:
                 job.status = "failed"
                 job.error_message = f"Job submission failed: {e}"[:1000]
+                
+                if job.dataset_id:
+                    dataset_result = await db.execute(select(Dataset).where(Dataset.id == job.dataset_id))
+                    dataset = dataset_result.scalar_one_or_none()
+                    if dataset and dataset.status in ["sharding", "available"]:
+                        dataset.status = "uploaded"
+                        
                 await db.commit()
 
 
@@ -391,7 +411,47 @@ async def cancel_job(
         )
 
     job.status = "cancelled"
+    
+    if job.dataset_id:
+        dataset_result = await db.execute(select(Dataset).where(Dataset.id == job.dataset_id))
+        dataset = dataset_result.scalar_one_or_none()
+        if dataset and dataset.status in ["sharding", "available"]:
+            dataset.status = "uploaded"
+            
     await db.commit()
+
+    # Inform Redis queue so orchestrator knows the job is cancelled
+    try:
+        from app.utils.redis_client import redis_client
+        if redis_client:
+            import json
+            job_key = f"jobs:{job_id}"
+            job_data = await redis_client.get(job_key)
+            if job_data:
+                try:
+                    job_info = json.loads(job_data)
+                    old_status = job_info.get("status")
+                    priority = job_info.get("priority", "JOB_PRIORITY_MEDIUM")
+                    
+                    if old_status not in ["completed", "failed", "cancelled", "timeout"]:
+                        job_info["status"] = "cancelled"
+                        await redis_client.set(job_key, json.dumps(job_info))
+                        
+                        if old_status:
+                            await redis_client.srem(f"jobs:by_status:{old_status}", job_id)
+                        await redis_client.sadd("jobs:by_status:cancelled", job_id)
+                        
+                        await redis_client.zrem(f"queue:{priority}", job_id)
+                        
+                        assigned_worker_id = job_info.get("assigned_worker_id")
+                        if assigned_worker_id:
+                            await redis_client.srem(f"jobs:by_worker:{assigned_worker_id}", job_id)
+                        
+                        logger.info(f"Cancelled job {job_id} in Redis JobQueue.")
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not parse Redis job info for {job_id}")
+    except Exception as e:
+        logger.error(f"Failed to cancel job {job_id} in Redis: {e}")
 
     logger.info(f"Job cancelled: {job_id}")
 

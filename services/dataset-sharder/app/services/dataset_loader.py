@@ -33,11 +33,16 @@ def _parse_gs_uri(gs_uri: str) -> Tuple[str, str]:
     return bucket, key
 
 
+_s3_emulator_client = None
+
 def _emulator_s3_client():
+    global _s3_emulator_client
+    if _s3_emulator_client is not None:
+        return _s3_emulator_client
     endpoint = os.getenv("STORAGE_EMULATOR_URL")
     if not endpoint:
         return None
-    return boto3.client(
+    _s3_emulator_client = boto3.client(
         "s3",
         endpoint_url=endpoint,
         aws_access_key_id=(
@@ -51,6 +56,7 @@ def _emulator_s3_client():
         region_name="us-east-1",
         config=Config(signature_version="s3v4"),
     )
+    return _s3_emulator_client
 
 
 def _list_gs_objects(gs_prefix: str) -> List[Tuple[str, int]]:

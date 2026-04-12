@@ -42,7 +42,7 @@ from meshml_worker.proto import (  # noqa: E402
 class Config:
     api_gateway_url: str = os.getenv("API_GATEWAY_URL", "http://localhost:8000")
     task_orchestrator_grpc_url: str = os.getenv("TASK_ORCHESTRATOR_GRPC_URL", "localhost:50051")
-    parameter_server_grpc_url: str = os.getenv("PARAMETER_SERVER_GRPC_URL", "localhost:50052")
+    parameter_server_grpc_url: str = os.getenv("PARAMETER_SERVER_GRPC_URL", "localhost:50054")
     user_email: str = os.getenv("E2E_USER_EMAIL", f"e2e-{uuid.uuid4().hex[:8]}@gmail.com")
     user_password: str = os.getenv("E2E_USER_PASSWORD", "meshml_e2e_password")
     model_name: str = os.getenv("E2E_MODEL_NAME", f"e2e-model-{uuid.uuid4().hex[:8]}")

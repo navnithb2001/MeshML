@@ -58,10 +58,10 @@ spec:
           mountPath: /var/lib/postgresql/data
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
+            memory: "128Mi"
+            cpu: "20m"
           limits:
-            memory: "1Gi"
+            memory: "128Mi"
             cpu: "500m"
         livenessProbe:
           exec:
@@ -69,7 +69,9 @@ spec:
             - pg_isready
             - -U
             - meshml_user
-          initialDelaySeconds: 30
+            - -d
+            - meshml
+          initialDelaySeconds: 120
           periodSeconds: 10
         readinessProbe:
           exec:
@@ -77,6 +79,8 @@ spec:
             - pg_isready
             - -U
             - meshml_user
+            - -d
+            - meshml
           initialDelaySeconds: 5
           periodSeconds: 5
       volumes:

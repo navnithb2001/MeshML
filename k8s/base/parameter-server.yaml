@@ -6,7 +6,7 @@ metadata:
   labels:
     app: parameter-server
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: parameter-server
@@ -17,11 +17,11 @@ spec:
     spec:
       containers:
       - name: parameter-server
-        image: gcr.io/PROJECT_ID/meshml-parameter-server:latest
+        image: us-central1-docker.pkg.dev/meshml-platform/meshml-repo/parameter-server:latest
         ports:
         - containerPort: 8003
           name: http
-        - containerPort: 50052
+        - containerPort: 50054
           name: grpc
         envFrom:
         - configMapRef:
@@ -30,22 +30,22 @@ spec:
             name: meshml-secrets
         resources:
           requests:
-            memory: "1Gi"
-            cpu: "500m"
+            memory: "128Mi"
+            cpu: "20m"
           limits:
-            memory: "2Gi"
-            cpu: "1000m"
+            memory: "256Mi"
+            cpu: "200m"
         livenessProbe:
           httpGet:
             path: /health
             port: 8003
-          initialDelaySeconds: 30
+          initialDelaySeconds: 120
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
             port: 8003
-          initialDelaySeconds: 10
+          initialDelaySeconds: 90
           periodSeconds: 5
 
 ---
@@ -58,14 +58,13 @@ metadata:
     app: parameter-server
 spec:
   type: ClusterIP
-  clusterIP: None
   ports:
   - port: 8003
     targetPort: 8003
     protocol: TCP
     name: http
-  - port: 50052
-    targetPort: 50052
+  - port: 50054
+    targetPort: 50054
     protocol: TCP
     name: grpc
   selector:

@@ -30,7 +30,7 @@ RUN useradd -m -u 1000 meshml && \
 USER meshml
 
 # Expose ports (HTTP and gRPC)
-EXPOSE 8003 50052
+EXPOSE 8003 50054
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

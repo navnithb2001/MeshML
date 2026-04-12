@@ -54,6 +54,7 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
   const [modelFile, setModelFile] = useState<File | null>(null);
   const [modelName, setModelName] = useState('');
+  const [modelId, setModelId] = useState<string | null>(null);
   const [datasetId, setDatasetId] = useState<string | null>(null);
 
   const { groupId } = useParams<{ groupId: string }>();
@@ -95,8 +96,8 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
       }
       const selected = (datasets?.datasets || []).find((d) => d.id === selectedDatasetId);
       const selectedStatus = (selected?.status || '').toLowerCase();
-      if (selected && !['available', 'uploaded'].includes(selectedStatus)) {
-        toast.warning(`Dataset is ${selected.status}. Choose one that is available.`);
+      if (selected && selectedStatus !== 'uploaded') {
+        toast.warning(`Dataset is ${selected.status}. Choose one that is uploaded.`);
         return;
       }
       setDatasetId(selectedDatasetId);
@@ -127,7 +128,8 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
     }
     setLoading(true);
     try {
-      await modelsAPI.uploadModelArchitecture(modelFile, modelName, groupId);
+      const res = await modelsAPI.uploadModelArchitecture(modelFile, modelName, groupId);
+      setModelId(res.model_id);
       setStep(3);
       toast.success('Model architecture uploaded.');
     } catch (err) {
@@ -173,10 +175,12 @@ export default function SetupModal({ isOpen, onClose }: SetupModalProps) {
       // POST /api/jobs (JobCreateRequest payload)
       const job = await jobsAPI.createJob({ 
         group_id: groupId,
+        model_id: modelId ? String(modelId) : undefined,
         dataset_id: finalDatasetId || undefined,
         config: { 
           final_version: Math.floor(parsedTarget),
-          shard_strategy: shardingStrategy
+          shard_strategy: shardingStrategy,
+          model_name: modelName
         }
       });
       // Immediately routes user to Live Dashboard

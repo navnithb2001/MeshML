@@ -504,11 +504,10 @@ class BatchManager:
 
             batch_sample_indices = sample_indices[start_idx:end_idx]
 
-            # Load samples
-            samples = []
-            for idx in batch_sample_indices:
-                sample = loader.get_sample(idx)
-                samples.append(sample)
+            # Load samples in parallel to mitigate cloud network I/O latency
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(32, len(batch_sample_indices))) as executor:
+                samples = list(executor.map(loader.get_sample, batch_sample_indices))
 
             # Calculate class distribution
             class_dist = {}
@@ -536,6 +535,9 @@ class BatchManager:
             # Save batch
             self.storage.save_batch(samples, metadata)
             batches_metadata.append(metadata)
+            
+            progress_pct = ((batch_idx + 1) / num_batches) * 100
+            logger.info(f"Shard {shard.shard_id} sharding progress: {progress_pct:.2f}% ({batch_idx + 1}/{num_batches} batches completed)")
 
         logger.info(f"Created {len(batches_metadata)} batches for shard {shard.shard_id}")
 

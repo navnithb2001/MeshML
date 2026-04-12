@@ -23,7 +23,11 @@ You can also set `MESHML_API_URL` to override the API Gateway URL.
 
 ```bash
 # Initialize once (writes .meshml/config.yaml in current directory)
-meshml-worker init --api-url http://localhost:8000
+# For remote/cloud environments, supply the base host IP:
+meshml-worker init --host <host ip/url>
+
+# For local testing, providing the API URL works too:
+# meshml-worker init --api-url http://localhost:8000
 
 # Login (saves token to ~/.meshml/auth.json)
 meshml-worker login --email you@example.com

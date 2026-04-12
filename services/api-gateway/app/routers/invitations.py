@@ -161,18 +161,18 @@ async def accept_invitation(
     if not group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
 
-    # Check if already member (by user_id or worker_id)
+    # Check if this specific worker is already in the group
     member_result = await db.execute(
         select(GroupMember).where(
             GroupMember.group_id == invitation.group_id,
-            (GroupMember.user_id == current_user.id) | (GroupMember.worker_id == request.worker_id),
+            GroupMember.worker_id == request.worker_id,
         )
     )
     existing_member = member_result.scalar_one_or_none()
 
     if existing_member:
         logger.info(
-            f"User {current_user.email} (worker {request.worker_id}) already member of group"
+            f"Worker {request.worker_id} already member of group"
         )
         return {
             "group_id": invitation.group_id,
@@ -182,10 +182,11 @@ async def accept_invitation(
         }
 
     # Add as member with both user_id and worker_id
-    # This links the user account (for dashboard) to the worker device (for training)
+    # We do NOT set user_id here so that `list_user_groups` doesn't pick up the group twice
+    # Group ownership/membership for the user is handled separately via the UI group join flow.
     member = GroupMember(
         group_id=invitation.group_id,
-        user_id=current_user.id,  # User account for authentication and dashboard access
+        user_id=None,  # Do not attach the current_user.id to avoid duplicate groups in the UI
         worker_id=request.worker_id,  # Worker device for training tasks
         role="worker",
     )

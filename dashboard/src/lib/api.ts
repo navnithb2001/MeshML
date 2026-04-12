@@ -321,14 +321,15 @@ export const modelsAPI = {
     file: File,
     name: string,
     groupId: string,
-  ): Promise<void> => {
+  ): Promise<{ model_id: string }> => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('name', name);
     formData.append('group_id', groupId);
-    await api.post('/models/upload', formData, {
+    const res = await api.post('/models/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
+    return res.data;
   },
 
   getDownloadSignedUrl: async (modelId: string): Promise<any> => {

@@ -6,7 +6,7 @@ metadata:
   labels:
     app: api-gateway
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: api-gateway
@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: gcr.io/PROJECT_ID/meshml-api-gateway:latest
+        image: us-central1-docker.pkg.dev/meshml-platform/meshml-repo/api-gateway:latest
         ports:
         - containerPort: 8000
           name: http
@@ -26,25 +26,36 @@ spec:
             name: meshml-config
         - secretRef:
             name: meshml-secrets
+        env:
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /var/secrets/gcs/key.json
+        volumeMounts:
+        - name: gcs-signing-key
+          mountPath: /var/secrets/gcs
+          readOnly: true
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
+            memory: "128Mi"
+            cpu: "20m"
           limits:
-            memory: "1Gi"
+            memory: "512Mi"
             cpu: "500m"
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 30
+          initialDelaySeconds: 120
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 10
+          initialDelaySeconds: 90
           periodSeconds: 5
+      volumes:
+      - name: gcs-signing-key
+        secret:
+          secretName: gcs-signing-key
 
 ---
 apiVersion: v1
@@ -55,8 +66,7 @@ metadata:
   labels:
     app: api-gateway
 spec:
-  type: LoadBalancer
-  loadBalancerIP: ${GATEWAY_IP}
+  type: ClusterIP
   ports:
   - port: 80
     targetPort: 8000

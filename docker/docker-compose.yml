@@ -126,7 +126,7 @@ services:
     container_name: meshml-model-registry
     ports:
       - "8004:8004"
-      - "50054:50052"
+      - "50052:50052"
     environment:
       DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
       GCS_BUCKET_NAME: meshml-models-local
@@ -200,7 +200,7 @@ services:
       REDIS_URL: redis://redis:6379/2
       PARAMETER_SERVER_URL: parameter-server:8003
       DATASET_SHARDER_URL: dataset-sharder:8001
-      PARAMETER_SERVER_GRPC_URL: parameter-server:50052
+      PARAMETER_SERVER_GRPC_URL: parameter-server:50054
       DATASET_SHARDER_GRPC_URL: dataset-sharder:50053
       MODEL_REGISTRY_GRPC_URL: model-registry:50052
       METRICS_SERVICE_GRPC_URL: metrics-service:50055
@@ -225,13 +225,13 @@ services:
     container_name: meshml-parameter-server
     ports:
       - "8003:8003"
-      - "50052:50052"  # gRPC port
+      - "50054:50054"  # gRPC port
     environment:
       DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
       REDIS_URL: redis://redis:6379/3
       AGGREGATION_STRATEGY: fedavg
       SYNC_MODE: async
-      GRPC_PORT: "50052"
+      GRPC_PORT: "50054"
     depends_on:
       postgres:
         condition: service_healthy

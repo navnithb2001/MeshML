@@ -86,7 +86,26 @@ export default function GroupDashboard() {
   });
 
   const deleteDataset = useMutation({
-    mutationFn: (datasetId: string) => datasetsAPI.deleteDataset(datasetId),
+    mutationFn: async (datasetId: string) => {
+      // Initiate deletion (returns 202)
+      toast.info('Dataset is being deleted...');
+      await datasetsAPI.deleteDataset(datasetId);
+
+      // Poll until the dataset is completely gone
+      while (true) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+          await datasetsAPI.getDataset(datasetId);
+        } catch (err: any) {
+          if (err.response?.status === 404) {
+            break; // It's fully deleted
+          }
+          // If a different error occurs (e.g. 500, network error), we stop polling and throw
+          throw err;
+        }
+      }
+      return datasetId;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['datasets', groupId] });
       toast.success('Dataset deleted.');
@@ -186,9 +205,8 @@ export default function GroupDashboard() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  <th className="px-6 py-4 font-mono">Job ID</th>
-                  <th className="px-6 py-4">Dataset ID</th>
-                  <th className="px-6 py-4">Model Config</th>
+                  <th className="px-6 py-4">Model Reference Name</th>
+                  <th className="px-6 py-4">Dataset Name</th>
                   <th className="px-6 py-4">Status</th>
                   <th className="px-6 py-4">Created Date</th>
                   <th className="px-6 py-4">Action</th>
@@ -197,22 +215,23 @@ export default function GroupDashboard() {
               <tbody>
                 {isJobsLoading && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-sm font-mono text-slate-400">Loading jobs...</td>
+                    <td colSpan={5} className="px-6 py-8 text-center text-sm font-mono text-slate-400">Loading jobs...</td>
                   </tr>
                 )}
                 {(!isJobsLoading && (!jobs || jobs.length === 0)) && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-sm font-mono text-slate-500">
+                    <td colSpan={5} className="px-6 py-12 text-center text-sm font-mono text-slate-500">
                       No jobs running in this group.<br/>Click "New Training Run" to start.
                     </td>
                   </tr>
                 )}
-                {(jobs || []).map((job) => (
-                  <tr key={job.id} className="border-b border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950 transition-colors">
-                    <td className="px-6 py-4 font-mono text-slate-900 dark:text-slate-50 text-sm">{job.id}</td>
-                    <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-mono text-xs">{job.dataset_id || '---'}</td>
-                    <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-mono text-xs">{job.model_id || '---'}</td>
-                    <td className="px-6 py-4">
+                {(jobs || []).map((job) => {
+                  const datasetName = datasets?.datasets?.find(d => d.id === job.dataset_id)?.name || job.dataset_id || '---';
+                  return (
+                    <tr key={job.id} className="border-b border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950 transition-colors">
+                      <td className="px-6 py-4 text-slate-900 dark:text-slate-50 font-semibold text-sm">{(job.config as any)?.model_name || job.model_id || '---'}</td>
+                      <td className="px-6 py-4 text-slate-700 dark:text-slate-300 text-sm">{datasetName}</td>
+                      <td className="px-6 py-4">
                       <span 
                         title={['FAILED', 'CANCELLED'].includes((job.status || '').toUpperCase()) ? (job as any).error_message || 'Job failed' : undefined}
                         className={clsx(
@@ -232,28 +251,26 @@ export default function GroupDashboard() {
                     <td className="px-6 py-4 text-slate-500 font-mono text-xs text-slate-400">
                       {new Date(job.created_at).toISOString().split('T')[0]}
                     </td>
-                    <td className="px-6 py-4">
-                      <Link 
-                        to={`/jobs/${job.id}/live`}
-                        className="text-cyan-600 hover:text-cyan-800 dark:hover:text-cyan-400 font-medium text-xs uppercase tracking-wider"
-                      >
-                        View Job
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-6 py-4">
+                        <Link 
+                          to={`/jobs/${job.id}/live`}
+                          className="text-cyan-600 hover:text-cyan-800 dark:hover:text-cyan-400 font-medium text-xs uppercase tracking-wider"
+                        >
+                          View Job
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        )}
-
-        {/* Datasets Tab */}
+        )}        {/* Datasets Tab */}
         {activeTab === 'datasets' && (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  <th className="px-6 py-4 font-mono">Dataset ID</th>
                   <th className="px-6 py-4">Name</th>
                   <th className="px-6 py-4">Format</th>
                   <th className="px-6 py-4">Status</th>
@@ -269,15 +286,14 @@ export default function GroupDashboard() {
                 )}
                   {(!isDatasetsLoading && (!datasets?.datasets || datasets.datasets.length === 0)) && (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-sm font-mono text-slate-500">
+                      <td colSpan={5} className="px-6 py-12 text-center text-sm font-mono text-slate-500">
                         No datasets uploaded yet.
                       </td>
                     </tr>
                   )}
                   {(datasets?.datasets || []).map((dataset) => (
                     <tr key={dataset.id} className="border-b border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950 transition-colors">
-                      <td className="px-6 py-4 font-mono text-slate-900 dark:text-slate-50 text-sm">{dataset.id}</td>
-                      <td className="px-6 py-4 text-slate-700 dark:text-slate-300 text-sm">{dataset.name}</td>
+                      <td className="px-6 py-4 text-slate-900 dark:text-slate-50 font-semibold text-sm">{dataset.name}</td>
                       <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-mono text-xs">{dataset.format || '---'}</td>
                       <td className="px-6 py-4">
                         <span className={clsx(
@@ -286,7 +302,7 @@ export default function GroupDashboard() {
                             const s = (dataset.status || '').toUpperCase();
                             if (s === 'AVAILABLE' || s === 'UPLOADED') return "text-emerald-500";
                             if (s === 'PENDING' || s === 'SHARDING') return "text-amber-500";
-                            if (s === 'FAILED') return "text-rose-500";
+                            if (s === 'FAILED' || s === 'DELETING') return "text-rose-500";
                             return "text-slate-500";
                           })()
                         )}>
@@ -301,7 +317,7 @@ export default function GroupDashboard() {
                           onClick={() => {
                             setConfirmState({ type: 'deleteDataset', datasetId: dataset.id, datasetName: dataset.name });
                           }}
-                          disabled={deleteDataset.isPending}
+                          disabled={deleteDataset.isPending || dataset.status === 'deleting'}
                           className="inline-flex items-center space-x-1 text-xs font-medium text-rose-500 hover:text-rose-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                           title="Delete dataset"
                         >

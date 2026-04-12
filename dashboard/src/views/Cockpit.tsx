@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Download, CheckCircle, Clock, XCircle, Loader2 } from 'lucide-react';
-import { jobsAPI, modelsAPI } from '@/lib/api';
+import { jobsAPI, modelsAPI, datasetsAPI } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import ConfirmModal from '@/components/ConfirmModal';
 import clsx from 'clsx';
@@ -11,6 +11,7 @@ interface JobInfo {
   status: string;
   model_id: string | null;
   dataset_id: string | null;
+  dataset_name?: string;
   config: Record<string, any> | null;
   progress: { current_batch?: number; total_batches?: number; loss?: number; accuracy?: number } | null;
   created_at: string;
@@ -32,7 +33,18 @@ export default function Cockpit() {
     const fetchJob = async () => {
       try {
         const data = await jobsAPI.getJob(id);
-        setJob(data as any);
+        
+        let dname = data.dataset_id || '---';
+        if (data.dataset_id) {
+          try {
+            const ds = await datasetsAPI.getDataset(data.dataset_id);
+            dname = ds.name || dname;
+          } catch(e) {
+            console.error('Failed to fetch dataset name', e);
+          }
+        }
+        
+        setJob({ ...data, dataset_name: dname } as any);
       } catch (err) {
         console.error('Failed to fetch job', err);
       } finally {
@@ -102,8 +114,8 @@ export default function Cockpit() {
             <h1 className="text-xl font-semibold tracking-tight uppercase text-slate-900 dark:text-slate-50">
               Job Details
             </h1>
-            <p className="text-sm font-mono text-slate-500 dark:text-slate-400 mt-1">
-              {id}
+            <p className="text-sm font-sans font-medium text-slate-500 dark:text-slate-400 mt-1">
+              {loading ? 'Loading...' : ((job?.config as any)?.model_name || job?.model_id || 'Unnamed Training Run')}
             </p>
           </div>
         </div>
@@ -133,12 +145,12 @@ export default function Cockpit() {
               </div>
             </div>
             <div className="space-y-1">
-              <div className="text-xs uppercase tracking-widest text-slate-500">Model ID</div>
-              <div className="font-mono text-lg text-slate-900 dark:text-slate-50">{job.model_id || '---'}</div>
+              <div className="text-xs uppercase tracking-widest text-slate-500">Model Reference Name</div>
+              <div className="font-mono text-lg text-slate-900 dark:text-slate-50">{(job.config as any)?.model_name || job.model_id || '---'}</div>
             </div>
             <div className="space-y-1">
-              <div className="text-xs uppercase tracking-widest text-slate-500">Dataset ID</div>
-              <div className="font-mono text-sm text-slate-900 dark:text-slate-50">{job.dataset_id || '---'}</div>
+              <div className="text-xs uppercase tracking-widest text-slate-500">Dataset Name</div>
+              <div className="font-sans font-medium text-sm text-slate-900 dark:text-slate-50">{job.dataset_name || job.dataset_id || '---'}</div>
             </div>
             {job.config?.task_type && (
               <div className="space-y-1">
@@ -224,7 +236,7 @@ export default function Cockpit() {
         isOpen={showDeleteConfirm}
         title="Cancel Job"
         message="Are you sure you want to cancel this job? This action will terminate training and cannot be undone."
-        detail={id}
+        detail={(job?.config as any)?.model_name || job?.model_id || 'Unknown Job'}
         confirmLabel="Cancel Job"
         onCancel={() => setShowDeleteConfirm(false)}
         onConfirm={handleCancel}

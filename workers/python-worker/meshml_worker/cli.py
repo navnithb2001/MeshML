@@ -32,7 +32,7 @@ def _default_config_path() -> Path:
 
 
 @click.group()
-@click.version_option(version="0.3.3")
+@click.version_option(version="0.3.6")
 def main() -> None:
     """MeshML Worker - Federated Learning Worker"""
     pass
@@ -62,6 +62,8 @@ def main() -> None:
     help="Configuration directory",
 )
 @click.option("--force", is_flag=True, help="Force overwrite existing configuration")
+@click.option("--host", default=None, help="Base host IP/domain to set for all services (replaces localhost default)")
+@click.option("--dev-mode", is_flag=True, help="Set all service URLs to localhost for local development")
 def init(
     api_url: str,
     parameter_server_url: str,
@@ -72,6 +74,8 @@ def init(
     batch_size: int,
     config_dir: Path,
     force: bool,
+    host: Optional[str],
+    dev_mode: bool,
 ) -> None:
     """Initialize worker configuration"""
 
@@ -85,12 +89,31 @@ def init(
 
     # Create configuration
     config = WorkerConfig()
+    
+    if dev_mode:
+        config.api_base_url = "http://localhost:8000"
+        config.parameter_server.url = "http://localhost:8003"
+        config.parameter_server.grpc_url = "localhost:50054"
+        config.task_orchestrator.grpc_url = "localhost:50051"
+        config.dataset_sharder.url = "http://localhost:8001"
+        config.model_registry.url = "http://localhost:8004"
+        config.metrics_service.grpc_url = "localhost:50055"
+    elif host:
+        config.api_base_url = f"http://{host}:8000"
+        config.parameter_server.url = f"http://{host}:8003"
+        config.parameter_server.grpc_url = f"{host}:50054"
+        config.task_orchestrator.grpc_url = f"{host}:50051"
+        config.dataset_sharder.url = f"http://{host}:8001"
+        config.model_registry.url = f"http://{host}:8004"
+        config.metrics_service.grpc_url = f"{host}:50055"
+    else:
+        if api_url:
+            config.api_base_url = api_url
+        config.parameter_server.url = parameter_server_url
+        config.task_orchestrator.grpc_url = task_orchestrator_url
+
     config.worker.id = worker_id
     config.worker.name = worker_name
-    if api_url:
-        config.api_base_url = api_url
-    config.parameter_server.url = parameter_server_url
-    config.task_orchestrator.grpc_url = task_orchestrator_url
     config.training.device = device
     config.training.batch_size = batch_size
     config.storage.base_dir = config_dir
@@ -103,8 +126,8 @@ def init(
     click.echo(f"  Worker ID: {config.worker.id}")
     click.echo(f"  Config: {config_path}")
     click.echo(f"  API Gateway: {config.api_base_url}")
-    click.echo(f"  Parameter Server: {parameter_server_url}")
-    click.echo(f"  Task Orchestrator: {task_orchestrator_url}")
+    click.echo(f"  Parameter Server: {config.parameter_server.url}")
+    click.echo(f"  Task Orchestrator: {config.task_orchestrator.grpc_url}")
     click.echo(f"  Device: {device}")
     click.echo()
     click.echo("Next steps:")

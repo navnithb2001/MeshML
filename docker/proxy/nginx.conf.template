@@ -1,0 +1,149 @@
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    # Temp file paths writable in Cloud Run's read-only filesystem
+    client_body_temp_path /tmp/nginx_client_body;
+    proxy_temp_path /tmp/nginx_proxy;
+
+    # General HTTP optimization
+    client_max_body_size 0;
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+    proxy_connect_timeout 300s;
+    proxy_http_version 1.1;
+
+    # API Gateway (8000)
+    server {
+        listen 8000;
+        server_name _;
+        location / {
+            proxy_pass http://${API_GATEWAY_HOST}:80;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+    }
+    
+    # Dataset Sharder (8001)
+    server {
+        listen 8001;
+        server_name _;
+        location / {
+            proxy_pass http://${DATASET_SHARDER_HOST}:8001;
+        }
+    }
+    
+    # Task Orchestrator HTTP (8002)
+    server {
+        listen 8002;
+        server_name _;
+        location / {
+            proxy_pass http://${TASK_ORCHESTRATOR_HOST}:8002;
+        }
+    }
+
+    # Parameter Server HTTP (8003)
+    server {
+        listen 8003;
+        server_name _;
+        location / {
+            proxy_pass http://${PARAMETER_SERVER_HOST}:8003;
+        }
+    }
+    
+    # Model Registry HTTP (8004)
+    server {
+        listen 8004;
+        server_name _;
+        location / {
+            proxy_pass http://${MODEL_REGISTRY_HOST}:8004;
+        }
+    }
+    
+    # Metrics Service HTTP (8005)
+    server {
+        listen 8005;
+        server_name _;
+        location / {
+            proxy_pass http://${METRICS_SERVICE_HOST}:8005;
+        }
+    }
+    
+    # Task Orchestrator GRPC (50051)
+    server {
+        listen 50051 http2;
+        server_name _;
+        location / {
+            grpc_pass grpc://${TASK_ORCHESTRATOR_HOST}:50051;
+            grpc_read_timeout 3600s;
+            grpc_send_timeout 3600s;
+        }
+    }
+    
+    # Model Registry GRPC (50052)
+    server {
+        listen 50052 http2;
+        server_name _;
+        location / {
+            grpc_pass grpc://${MODEL_REGISTRY_HOST}:50052;
+            grpc_read_timeout 3600s;
+            grpc_send_timeout 3600s;
+        }
+    }
+
+    # Dataset Sharder GRPC (50053)
+    server {
+        listen 50053 http2;
+        server_name _;
+        location / {
+            grpc_pass grpc://${DATASET_SHARDER_HOST}:50053;
+            grpc_read_timeout 3600s;
+            grpc_send_timeout 3600s;
+        }
+    }
+    
+    # Parameter Server GRPC (50054)
+    server {
+        listen 50054 http2;
+        server_name _;
+        location / {
+            grpc_pass grpc://${PARAMETER_SERVER_HOST}:50054;
+            grpc_read_timeout 3600s;
+            grpc_send_timeout 3600s;
+        }
+    }
+    
+    # Metrics Service GRPC (50055)
+    server {
+        listen 50055 http2;
+        server_name _;
+        location / {
+            grpc_pass grpc://${METRICS_SERVICE_HOST}:50055;
+            grpc_read_timeout 3600s;
+            grpc_send_timeout 3600s;
+        }
+    }
+
+    # Cloud Run UI HTTPS Endpoint (8080)
+    server {
+        listen 8080 http2;
+        server_name _;
+        location / {
+            proxy_pass http://${API_GATEWAY_HOST}:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+    }
+}

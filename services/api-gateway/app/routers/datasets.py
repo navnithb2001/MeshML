@@ -48,6 +48,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 # Storage configuration
@@ -334,17 +335,19 @@ async def get_dataset(
     return _to_dataset_response(dataset)
 
 
-@router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{dataset_id}", status_code=status.HTTP_202_ACCEPTED)
 async def delete_dataset(
     dataset_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Delete dataset and associated files
+    Delete dataset and associated files in background
 
     Args:
         dataset_id: Dataset ID
+        background_tasks: FastAPI BackgroundTasks
         current_user: Authenticated user
         db: Database session
     """
@@ -370,84 +373,17 @@ async def delete_dataset(
             error_message="Source dataset was deleted by user."
         )
     )
-    # Commit the failure state for jobs so they persist even if the file rm operations fail
+    
+    dataset.status = "deleting"
     await db.commit()
 
-    # Delete local files
-    if dataset.local_path and Path(dataset.local_path).exists():
-        shutil.rmtree(dataset.local_path, ignore_errors=True)
-
-    # Delete from GCS/MinIO
-    if dataset.gcs_path:
-        try:
-
-            def _parse_gcs_uri(uri: str) -> tuple[str, str]:
-                if not uri.startswith("gs://"):
-                    raise ValueError(f"Invalid GCS URI: {uri}")
-                without_scheme = uri[5:]
-                parts = without_scheme.split("/", 1)
-                bucket_name = parts[0]
-                prefix = parts[1] if len(parts) > 1 else ""
-                if prefix and not prefix.endswith("/"):
-                    prefix += "/"
-                return bucket_name, prefix
-
-            emulator_url = os.getenv("STORAGE_EMULATOR_URL")
-            bucket_name, prefix = _parse_gcs_uri(dataset.gcs_path)
-
-            if emulator_url:
-                try:
-                    storage_client = storage.Client(
-                        credentials=AnonymousCredentials(),
-                        project="local",
-                        client_options={"api_endpoint": emulator_url},
-                    )
-                    bucket = storage_client.bucket(bucket_name)
-                    blobs = list(bucket.list_blobs(prefix=prefix))
-                    for blob in blobs:
-                        blob.delete()
-                except Exception:
-                    client = boto3.client(
-                        "s3",
-                        endpoint_url=emulator_url,
-                        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
-                        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
-                        region_name="us-east-1",
-                        config=Config(signature_version="s3v4"),
-                    )
-                    objects = [
-                        {"Key": obj["Key"]}
-                        for obj in client.list_objects_v2(Bucket=bucket_name, Prefix=prefix).get(
-                            "Contents", []
-                        )
-                    ]
-                    if objects:
-                        client.delete_objects(Bucket=bucket_name, Delete={"Objects": objects})
-            else:
-                storage_client = storage.Client()
-                bucket = storage_client.bucket(bucket_name)
-                blobs = list(bucket.list_blobs(prefix=prefix))
-                for blob in blobs:
-                    blob.delete()
-        except Exception as e:
-            logger.warning(f"Failed to delete dataset objects from storage: {e}")
-
-    # Delete database record
-    await db.delete(dataset)
-    await db.commit()
-
-    # Cleanup data_batches tied to jobs using this dataset
-    try:
-        await db.execute(
-            text(
-                "DELETE FROM data_batches "
-                "WHERE job_id IN (SELECT id::text FROM jobs WHERE dataset_id = :dataset_id)"
-            ),
-            {"dataset_id": dataset_id},
-        )
-        await db.commit()
-    except Exception as e:
-        logger.warning(f"Failed to cleanup data_batches for dataset {dataset_id}: {e}")
+    # Submit background task to physically remove files and delete from DB
+    background_tasks.add_task(
+        _delete_dataset_background,
+        dataset_id=dataset_id,
+        local_path=str(dataset.local_path) if dataset.local_path else None,
+        gcs_path=str(dataset.gcs_path) if dataset.gcs_path else None
+    )
 
     logger.info(f"Deleted dataset {dataset_id}")
 
@@ -895,3 +831,97 @@ async def _download_from_url_background(dataset_id: str, url: str, format: str):
     except Exception as e:
         logger.error(f"Download failed for dataset {dataset_id}: {e}")
         await _mark_dataset_failed(dataset_id, str(e))
+
+
+async def _delete_dataset_background(
+    dataset_id: str,
+    local_path: Optional[str],
+    gcs_path: Optional[str]
+):
+    """Background task to delete dataset files and DB record."""
+    try:
+        # Delete local files
+        if local_path and Path(local_path).exists():
+            shutil.rmtree(local_path, ignore_errors=True)
+            
+        # Delete from GCS/MinIO
+        if gcs_path:
+            try:
+                def _parse_gcs_uri(uri: str) -> tuple[str, str]:
+                    if not uri.startswith("gs://"):
+                        raise ValueError(f"Invalid GCS URI: {uri}")
+                    without_scheme = uri[5:]
+                    parts = without_scheme.split("/", 1)
+                    bucket_name = parts[0]
+                    prefix = parts[1] if len(parts) > 1 else ""
+                    if prefix and not prefix.endswith("/"):
+                        prefix += "/"
+                    return bucket_name, prefix
+
+                emulator_url = os.getenv("STORAGE_EMULATOR_URL")
+                bucket_name, prefix = _parse_gcs_uri(gcs_path)
+
+                def _delete_storage_blocking():
+                    if emulator_url:
+                        try:
+                            storage_client = storage.Client(
+                                credentials=AnonymousCredentials(),
+                                project="local",
+                                client_options={"api_endpoint": emulator_url},
+                            )
+                            bucket = storage_client.bucket(bucket_name)
+                            blobs = list(bucket.list_blobs(prefix=prefix))
+                            for blob in blobs:
+                                blob.delete()
+                        except Exception:
+                            client = boto3.client(
+                                "s3",
+                                endpoint_url=emulator_url,
+                                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
+                                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
+                                region_name="us-east-1",
+                                config=Config(signature_version="s3v4"),
+                            )
+                            objects = [
+                                {"Key": obj["Key"]}
+                                for obj in client.list_objects_v2(Bucket=bucket_name, Prefix=prefix).get(
+                                    "Contents", []
+                                )
+                            ]
+                            if objects:
+                                client.delete_objects(Bucket=bucket_name, Delete={"Objects": objects})
+                    else:
+                        storage_client = storage.Client()
+                        bucket = storage_client.bucket(bucket_name)
+                        blobs = list(bucket.list_blobs(prefix=prefix))
+                        for blob in blobs:
+                            blob.delete()
+
+                # Run blocking storage deletion in background thread pool to prevent freezing the gateway
+                await asyncio.to_thread(_delete_storage_blocking)
+            except Exception as e:
+                logger.warning(f"Failed to delete dataset objects from storage: {e}")
+                
+        # Now delete database record
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+            dataset = result.scalar_one_or_none()
+            if dataset:
+                await db.delete(dataset)
+                await db.commit()
+            
+            # Cleanup data_batches tied to jobs using this dataset
+            try:
+                await db.execute(
+                    text(
+                        "DELETE FROM data_batches "
+                        "WHERE job_id IN (SELECT id::text FROM jobs WHERE dataset_id = :dataset_id)"
+                    ),
+                    {"dataset_id": dataset_id},
+                )
+                await db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to cleanup data_batches for dataset {dataset_id}: {e}")
+
+    except Exception as e:
+        logger.error(f"Error in background dataset deletion task for {dataset_id}: {e}")

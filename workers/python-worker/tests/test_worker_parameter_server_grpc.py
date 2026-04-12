@@ -9,7 +9,7 @@ from meshml_worker.main import MeshMLWorker
 async def test_worker_uses_parameter_server_grpc(monkeypatch, tmp_path):
     config = WorkerConfig()
     config.worker.id = "worker-test"
-    config.parameter_server.grpc_url = "localhost:50052"
+    config.parameter_server.grpc_url = "localhost:50054"
     config.storage.base_dir = tmp_path
     config.storage.models_dir = tmp_path / "models"
     config.storage.data_dir = tmp_path / "data"
@@ -84,6 +84,6 @@ async def test_worker_uses_parameter_server_grpc(monkeypatch, tmp_path):
     worker = MeshMLWorker(config)
     await worker.run(user_id="user-1")
 
-    assert captured["grpc_url"] == "localhost:50052"
+    assert captured["grpc_url"] == "localhost:50054"
     assert captured["connected"] is True
     assert captured["client_type"] == "FakeParameterServerClient"

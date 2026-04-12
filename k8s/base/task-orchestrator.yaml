@@ -6,7 +6,7 @@ metadata:
   labels:
     app: task-orchestrator
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: task-orchestrator
@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: task-orchestrator
-        image: gcr.io/PROJECT_ID/meshml-task-orchestrator:latest
+        image: us-central1-docker.pkg.dev/meshml-platform/meshml-repo/task-orchestrator:latest
         ports:
         - containerPort: 8002
           name: http
@@ -30,22 +30,22 @@ spec:
             name: meshml-secrets
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
+            memory: "128Mi"
+            cpu: "20m"
           limits:
-            memory: "1Gi"
+            memory: "512Mi"
             cpu: "500m"
         livenessProbe:
           httpGet:
             path: /health
             port: 8002
-          initialDelaySeconds: 30
+          initialDelaySeconds: 120
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
             port: 8002
-          initialDelaySeconds: 10
+          initialDelaySeconds: 90
           periodSeconds: 5
 
 ---
@@ -58,7 +58,6 @@ metadata:
     app: task-orchestrator
 spec:
   type: ClusterIP
-  clusterIP: None
   ports:
   - port: 8002
     targetPort: 8002

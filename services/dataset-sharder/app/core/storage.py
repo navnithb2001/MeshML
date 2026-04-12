@@ -189,22 +189,29 @@ class StorageClient:
 
 
 # Global storage client instances
+_model_storage = None
 def get_model_storage() -> StorageClient:
     """Get storage client for models bucket."""
     from app.config import settings
+    global _model_storage
+    if _model_storage is None:
+        _model_storage = StorageClient(settings.GCS_BUCKET_MODELS)
+    return _model_storage
 
-    return StorageClient(settings.GCS_BUCKET_MODELS)
-
-
+_dataset_storage = None
 def get_dataset_storage() -> StorageClient:
     """Get storage client for datasets bucket."""
     from app.config import settings
+    global _dataset_storage
+    if _dataset_storage is None:
+        _dataset_storage = StorageClient(settings.GCS_BUCKET_DATASETS)
+    return _dataset_storage
 
-    return StorageClient(settings.GCS_BUCKET_DATASETS)
-
-
+_artifact_storage = None
 def get_artifact_storage() -> StorageClient:
     """Get storage client for artifacts bucket."""
     from app.config import settings
-
-    return StorageClient(settings.GCS_BUCKET_ARTIFACTS)
+    global _artifact_storage
+    if _artifact_storage is None:
+        _artifact_storage = StorageClient(settings.GCS_BUCKET_ARTIFACTS)
+    return _artifact_storage

@@ -14,7 +14,7 @@ class ParameterServerConfig(BaseModel):
     """Parameter Server configuration"""
 
     url: str = Field(default="http://localhost:8003", description="Parameter Server HTTP URL")
-    grpc_url: str = Field(default="localhost:50052", description="Parameter Server gRPC URL")
+    grpc_url: str = Field(default="localhost:50054", description="Parameter Server gRPC URL")
     timeout: int = Field(default=30, description="Request timeout in seconds")
     max_retries: int = Field(default=3, description="Maximum retry attempts")
     retry_delay: int = Field(default=5, description="Delay between retries in seconds")
