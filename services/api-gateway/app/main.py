@@ -75,6 +75,9 @@ async def add_process_time_header(request: Request, call_next):
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
     """Custom 404 handler"""
+    detail = getattr(exc, "detail", None)
+    if detail:
+        return JSONResponse(status_code=404, content={"error": detail, "path": str(request.url)})
     return JSONResponse(status_code=404, content={"error": "Not found", "path": str(request.url)})
 
 

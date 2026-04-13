@@ -649,6 +649,34 @@ class Trainer:
 
         logger.info("Optimizer initialized: Adam(lr=0.001)")
 
+    def _seed_initial_weights(self, params_job_id: str) -> None:
+        """Push model's initial weights to Parameter Server to bootstrap version 1.
+
+        Uses learning_rate=0.0 as a sentinel so the PS stores the data
+        as weights rather than applying them as gradients.
+        """
+        if self.model is None:
+            return
+        weights = {name: param.data.cpu() for name, param in self.model.named_parameters()}
+        logger.info(f"Seeding initial weights to Parameter Server ({len(weights)} tensors)...")
+        try:
+            response = self.grpc_client.push_gradients(
+                worker_id=self.config.worker.id or "unknown",
+                model_id=params_job_id,
+                version_id=0,
+                gradients=weights,
+                num_samples=0,
+                loss=0.0,
+                metrics={"learning_rate": 0.0},
+            )
+            if response.get("success"):
+                self.global_version = int(response.get("new_version", 1))
+                logger.info(f"Initial weights seeded: version={self.global_version}")
+            else:
+                logger.warning(f"Failed to seed weights: {response.get('message')}")
+        except Exception as e:
+            logger.warning(f"Failed to seed initial weights: {e}")
+
     def _fetch_weights(self, params_job_id: str) -> None:
         """Fetch initial weights from Parameter Server
 
@@ -673,8 +701,11 @@ class Trainer:
                     logger.info(f"Loaded weights from Parameter Server: version={version}")
                 except Exception as e:
                     logger.warning(f"Failed to load state dict: {e}, using current weights")
+            elif version == 0 and self.model is not None:
+                # No weights on PS yet — seed with our initial random weights
+                self._seed_initial_weights(params_job_id)
 
-            logger.info(f"Synced with Parameter Server: version={version}")
+            logger.info(f"Synced with Parameter Server: version={self.global_version}")
 
         except Exception as e:
             # It's okay if weights don't exist yet (new model)

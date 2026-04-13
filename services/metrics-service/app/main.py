@@ -166,20 +166,20 @@ async def _progress_bridge(stop_event: asyncio.Event, interval_seconds: int = 7)
                     job_id = row[0]
                     total_batches = int(row[1] or 0)
                     completed_batches = int(row[2] or 0)
-                    latest_metric = await session.execute(
+                    avg_metric = await session.execute(
                         text(
-                            "SELECT loss, accuracy "
-                            "FROM metrics "
+                            "SELECT AVG(loss), AVG(accuracy) "
+                            "FROM (SELECT loss, accuracy FROM metrics "
                             "WHERE job_id = :job_id "
-                            "ORDER BY step DESC, timestamp DESC "
-                            "LIMIT 1"
+                            "ORDER BY step DESC "
+                            "LIMIT 50) recent"
                         ),
                         {"job_id": str(job_id)},
                     )
-                    latest_row = latest_metric.first()
-                    latest_loss = float(latest_row[0]) if latest_row and latest_row[0] is not None else None
+                    avg_row = avg_metric.first()
+                    latest_loss = float(avg_row[0]) if avg_row and avg_row[0] is not None else None
                     latest_accuracy = (
-                        float(latest_row[1]) if latest_row and latest_row[1] is not None else None
+                        float(avg_row[1]) if avg_row and avg_row[1] is not None else None
                     )
                     progress_payload = json.dumps(
                         {

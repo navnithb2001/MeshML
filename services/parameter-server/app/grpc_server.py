@@ -82,10 +82,14 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
             return 0
 
     def _load_current_weights(self, model_id: str, version_id: int) -> Optional[dict]:
-        if self.storage.enable_redis and self.storage.redis_client and version_id > 0:
-            data = self.storage.redis_client.get(f"params:{model_id}:v{version_id}")
-            if data:
-                return self._load_tensor_dict(data)
+        if self.storage.enable_redis and self.storage.redis_client:
+            if version_id > 0:
+                data = self.storage.redis_client.get(f"params:{model_id}:v{version_id}")
+                if data:
+                    return self._load_tensor_dict(data)
+            # Fallback to in-memory parameters (e.g. version 0 / initial state)
+            if model_id in self.storage.parameters:
+                return self.storage.parameters[model_id]
         return None
 
     def _load_optimizer_state(self, model_id: str) -> dict:
@@ -152,7 +156,23 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
             try:
                 current_version = self._get_current_version(request.job_id)
                 params = self._load_current_weights(request.job_id, current_version)
-                if params is None:
+                if params is None and request.learning_rate == 0.0:
+                    # Seed mode: worker is pushing its initial weights (not gradients).
+                    # Store them as version 1 so future gradient pushes can apply.
+                    params = gradients
+                    new_version = 1
+                    self.storage._persist_to_redis(request.job_id, new_version, params)
+                    self.storage.parameters[request.job_id] = params
+                    self.storage.current_versions[request.job_id] = new_version
+                    logger.info(f"Seeded initial weights for {request.job_id}: {len(params)} tensors, version={new_version}")
+                    return parameter_server_pb2.GradientsAck(
+                        success=True,
+                        message="Initial weights seeded",
+                        new_version=new_version,
+                        staleness_accepted=False,
+                        staleness_threshold=0,
+                    )
+                elif params is None:
                     return parameter_server_pb2.GradientsAck(
                         success=False,
                         message="No parameters available for model",

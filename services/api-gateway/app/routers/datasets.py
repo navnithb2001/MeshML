@@ -31,7 +31,8 @@ from botocore.config import Config
 from google.auth.credentials import AnonymousCredentials
 from google.cloud import storage
 from app.clients.dataset_sharder_client import DatasetSharderClient
-from app.models.dataset import Dataset  # We'll create this model
+from app.models.dataset import Dataset
+from app.models.group import GroupMember
 from app.models.job import Job
 from app.models.user import User
 from app.proto import dataset_sharder_pb2
@@ -293,7 +294,18 @@ async def list_datasets(
     Returns:
         List of datasets
     """
-    query = select(Dataset).where(Dataset.uploaded_by == current_user.id)
+    # Show datasets uploaded by any member of the user's groups
+    group_ids_subq = (
+        select(GroupMember.group_id)
+        .where(GroupMember.user_id == current_user.id)
+        .scalar_subquery()
+    )
+    group_user_ids_subq = (
+        select(GroupMember.user_id)
+        .where(GroupMember.group_id.in_(group_ids_subq), GroupMember.user_id.isnot(None))
+        .scalar_subquery()
+    )
+    query = select(Dataset).where(Dataset.uploaded_by.in_(group_user_ids_subq))
 
     if format:
         query = query.where(Dataset.format == format)
@@ -1091,8 +1103,7 @@ async def _delete_dataset_background(
                 # Run blocking storage deletion in background thread pool to prevent freezing the gateway
                 await asyncio.to_thread(_delete_storage_blocking)
             except Exception as e:
-                logger.exception("Failed to delete dataset objects from storage for %s", dataset_id)
-                raise
+                logger.warning("Failed to delete dataset objects from storage for %s: %s (proceeding with DB cleanup)", dataset_id, e)
         # Now delete database record
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))

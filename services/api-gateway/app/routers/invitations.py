@@ -162,36 +162,49 @@ async def accept_invitation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
 
     # Check if this specific worker is already in the group
-    member_result = await db.execute(
+    worker_member_result = await db.execute(
         select(GroupMember).where(
             GroupMember.group_id == invitation.group_id,
             GroupMember.worker_id == request.worker_id,
         )
     )
-    existing_member = member_result.scalar_one_or_none()
+    existing_worker_member = worker_member_result.scalar_one_or_none()
 
-    if existing_member:
+    if existing_worker_member:
         logger.info(
             f"Worker {request.worker_id} already member of group"
         )
         return {
             "group_id": invitation.group_id,
             "group_name": group.name,
-            "role": existing_member.role,
-            "joined_at": existing_member.joined_at.isoformat(),
+            "role": existing_worker_member.role,
+            "joined_at": existing_worker_member.joined_at.isoformat(),
         }
 
-    # Add as member with both user_id and worker_id
-    # We do NOT set user_id here so that `list_user_groups` doesn't pick up the group twice
-    # Group ownership/membership for the user is handled separately via the UI group join flow.
-    member = GroupMember(
-        group_id=invitation.group_id,
-        user_id=None,  # Do not attach the current_user.id to avoid duplicate groups in the UI
-        worker_id=request.worker_id,  # Worker device for training tasks
-        role="worker",
+    # Check if the user already has a membership in this group (e.g. as owner/admin)
+    user_member_result = await db.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == invitation.group_id,
+            GroupMember.user_id == current_user.id,
+        )
     )
+    existing_user_member = user_member_result.scalar_one_or_none()
 
-    db.add(member)
+    if existing_user_member:
+        # Attach worker_id to existing membership rather than creating a duplicate
+        existing_user_member.worker_id = request.worker_id
+        logger.info(
+            f"Linked worker {request.worker_id} to existing membership for user {current_user.email}"
+        )
+    else:
+        # Create new membership with both user_id and worker_id
+        member = GroupMember(
+            group_id=invitation.group_id,
+            user_id=current_user.id,
+            worker_id=request.worker_id,
+            role="worker",
+        )
+        db.add(member)
 
     # Ensure worker exists in workers table as a placeholder if not already registered
     worker_result = await db.execute(select(Worker).where(Worker.worker_id == request.worker_id))

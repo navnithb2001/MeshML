@@ -686,6 +686,15 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 ),
                 {"job_id": job_id},
             )
+        # Reset dataset back to 'uploaded' so it can be reused
+        await session.execute(
+            text(
+                "UPDATE datasets SET status = 'uploaded' "
+                "WHERE id = (SELECT dataset_id FROM jobs WHERE id::text = :job_id) "
+                "AND status = 'available'"
+            ),
+            {"job_id": job_id},
+        )
         await session.commit()
 
         if self.metrics_client:
@@ -708,6 +717,15 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             text(
                 "UPDATE data_batches SET status = 'FAILED', assigned_worker_id = NULL "
                 "WHERE job_id = :job_id AND status IN ('AVAILABLE', 'ASSIGNED')"
+            ),
+            {"job_id": job_id},
+        )
+        # Reset the dataset back to 'uploaded' so it can be used by a new job
+        await session.execute(
+            text(
+                "UPDATE datasets SET status = 'uploaded' "
+                "WHERE id = (SELECT dataset_id FROM jobs WHERE id::text = :job_id) "
+                "AND status = 'available'"
             ),
             {"job_id": job_id},
         )
