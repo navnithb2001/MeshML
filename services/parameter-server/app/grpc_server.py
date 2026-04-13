@@ -84,9 +84,16 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
     def _load_current_weights(self, model_id: str, version_id: int) -> Optional[dict]:
         if self.storage.enable_redis and self.storage.redis_client:
             if version_id > 0:
-                data = self.storage.redis_client.get(f"params:{model_id}:v{version_id}")
-                if data:
-                    return self._load_tensor_dict(data)
+                try:
+                    params = self.storage._load_from_redis(model_id, version_id)
+                    if params is not None:
+                        return params
+                except Exception:
+                    logger.exception(
+                        "Failed to load persisted parameters for model_id=%s version=%s",
+                        model_id,
+                        version_id,
+                    )
             # Fallback to in-memory parameters (e.g. version 0 / initial state)
             if model_id in self.storage.parameters:
                 return self.storage.parameters[model_id]
