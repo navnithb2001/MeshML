@@ -360,7 +360,12 @@ def create_grpc_services(gcs_client: Optional[GCSClient]) -> ModelRegistryServic
 
 
 async def start_grpc_server(app, host: str, port: int) -> None:
-    server = grpc.aio.server()
+    server = grpc.aio.server(
+        options=[
+            ("grpc.max_send_message_length", 100 * 1024 * 1024),
+            ("grpc.max_receive_message_length", 100 * 1024 * 1024),
+        ]
+    )
     servicer = create_grpc_services(getattr(app.state, "gcs_client", None))
     model_registry_pb2_grpc.add_ModelRegistryServicer_to_server(servicer, server)
     server.add_insecure_port(f"{host}:{port}")

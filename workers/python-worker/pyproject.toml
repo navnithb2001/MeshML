@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "meshml-worker"
-version = "0.3.9"
+version = "0.3.10"
 description = "MeshML Python Worker - Contribute your device to distributed machine learning training"
 authors = ["MeshML Team <meshml@example.com>"]
 license = "MIT"

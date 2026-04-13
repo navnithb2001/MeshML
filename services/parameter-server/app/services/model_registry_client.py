@@ -13,7 +13,13 @@ class ModelRegistryClient:
         )
 
     async def upload_checkpoint(self, model_id: int, checkpoint_type: str, state_dict: bytes):
-        async with grpc.aio.insecure_channel(self.grpc_url) as channel:
+        async with grpc.aio.insecure_channel(
+            self.grpc_url,
+            options=[
+                ("grpc.max_send_message_length", 100 * 1024 * 1024),
+                ("grpc.max_receive_message_length", 100 * 1024 * 1024),
+            ],
+        ) as channel:
             stub = model_registry_pb2_grpc.ModelRegistryStub(channel)
             return await stub.UploadCheckpoint(
                 model_registry_pb2.CheckpointUploadRequest(
@@ -22,7 +28,13 @@ class ModelRegistryClient:
             )
 
     async def upload_final_model(self, model_id: int, state_dict: bytes):
-        async with grpc.aio.insecure_channel(self.grpc_url) as channel:
+        async with grpc.aio.insecure_channel(
+            self.grpc_url,
+            options=[
+                ("grpc.max_send_message_length", 100 * 1024 * 1024),
+                ("grpc.max_receive_message_length", 100 * 1024 * 1024),
+            ],
+        ) as channel:
             stub = model_registry_pb2_grpc.ModelRegistryStub(channel)
             return await stub.UploadFinalModel(
                 model_registry_pb2.FinalModelUploadRequest(model_id=model_id, state_dict=state_dict)

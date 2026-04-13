@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
+import torch
 
 # Try to import grpc - it's optional but recommended
 try:
@@ -460,4 +461,4 @@ class GRPCClient:
             return {}
         buffer = io.BytesIO(data)
         arrays = np.load(buffer, allow_pickle=False)
-        return {name: arrays[name] for name in arrays.files}
+        return {name: torch.from_numpy(arrays[name]) for name in arrays.files}
