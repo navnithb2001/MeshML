@@ -124,6 +124,13 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             self.assignment_engine.run(self._assignment_stop)
         )
 
+    async def _job_has_persisted_batches(self, job_id: str) -> bool:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(func.count()).select_from(DataBatch).where(DataBatch.job_id == job_id)
+            )
+            return int(result.scalar() or 0) > 0
+
     async def _resolve_worker_groups(self, user_id: str, worker_id: str) -> List[str]:
         groups: List[str] = []
         try:
@@ -659,7 +666,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                     "  jsonb_set("
                     "    COALESCE(config::jsonb, '{}'::jsonb), "
                     "  '{model_artifact_uri}', "
-                    "  to_jsonb(CAST(:uri AS text)), "
+                    "  to_jsonb((:uri)::varchar), "
                     "  true"
                     "  )::json"
                     ") "
@@ -696,6 +703,14 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 "message": message[:1000],
             },
         )
+        # Cancel all remaining batches so the assignment engine stops dispatching them
+        await session.execute(
+            text(
+                "UPDATE data_batches SET status = 'FAILED', assigned_worker_id = NULL "
+                "WHERE job_id = :job_id AND status IN ('AVAILABLE', 'ASSIGNED')"
+            ),
+            {"job_id": job_id},
+        )
         await session.commit()
 
     async def _update_job_progress(self, job_id: str, session) -> None:
@@ -715,8 +730,8 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 "UPDATE jobs "
                 "SET progress = ("
                 "  jsonb_set("
-                "    jsonb_set(COALESCE(progress::jsonb, '{}'::jsonb), '{current_batch}', to_jsonb(CAST(:completed AS integer)), true),"
-                "    '{total_batches}', to_jsonb(CAST(:total AS integer)), true"
+                "    jsonb_set(COALESCE(progress::jsonb, '{}'::jsonb), '{current_batch}', (:completed)::text::jsonb, true),"
+                "    '{total_batches}', (:total)::text::jsonb, true"
                 "  )::json"
                 ") "
                 "WHERE id::text = :job_id"
@@ -736,38 +751,46 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
 
         async with self._shard_lock:
             if dataset_id not in self._sharded_datasets:
-                bucket = os.getenv("DATASET_GCS_BUCKET", "meshml-datasets")
-                template = os.getenv("DATASET_PATH_TEMPLATE", "gs://{bucket}/{dataset_id}/")
-                dataset_path = template.format(bucket=bucket, dataset_id=dataset_id)
+                if await self._job_has_persisted_batches(job_info.job_id):
+                    logger.info(
+                        "Skipping re-sharding for job %s dataset %s because persisted batches already exist",
+                        job_info.job_id,
+                        dataset_id,
+                    )
+                    self._sharded_datasets.add(dataset_id)
+                else:
+                    bucket = os.getenv("DATASET_GCS_BUCKET", "meshml-datasets")
+                    template = os.getenv("DATASET_PATH_TEMPLATE", "gs://{bucket}/{dataset_id}/")
+                    dataset_path = template.format(bucket=bucket, dataset_id=dataset_id)
 
-                dataset_format = None
-                if isinstance(job_info.metadata.tags, dict):
-                    dataset_format = job_info.metadata.tags.get("dataset_format")
+                    dataset_format = None
+                    if isinstance(job_info.metadata.tags, dict):
+                        dataset_format = job_info.metadata.tags.get("dataset_format")
 
-                num_shards = int(os.getenv("DATASET_DEFAULT_SHARDS", "10"))
-                if isinstance(job_info.metadata.tags, dict):
-                    num_shards = int(job_info.metadata.tags.get("num_shards", num_shards))
+                    num_shards = int(os.getenv("DATASET_DEFAULT_SHARDS", "10"))
+                    if isinstance(job_info.metadata.tags, dict):
+                        num_shards = int(job_info.metadata.tags.get("num_shards", num_shards))
 
-                shard_strategy = "stratified"
-                if isinstance(job_info.metadata.tags, dict):
-                    shard_strategy = job_info.metadata.tags.get("shard_strategy", shard_strategy)
+                    shard_strategy = "stratified"
+                    if isinstance(job_info.metadata.tags, dict):
+                        shard_strategy = job_info.metadata.tags.get("shard_strategy", shard_strategy)
 
-                batch_size = job_info.metadata.batch_size
+                    batch_size = job_info.metadata.batch_size
 
-                client = DatasetSharderClient()
-                await client.shard_dataset(
-                    dataset_id=dataset_id,
-                    job_id=job_info.job_id,
-                    model_id=job_info.metadata.model_id,
-                    dataset_path=dataset_path,
-                    format=dataset_format,
-                    num_shards=num_shards,
-                    strategy=shard_strategy,
-                    batch_size=batch_size,
-                    seed=42,
-                )
+                    client = DatasetSharderClient()
+                    await client.shard_dataset(
+                        dataset_id=dataset_id,
+                        job_id=job_info.job_id,
+                        model_id=job_info.metadata.model_id,
+                        dataset_path=dataset_path,
+                        format=dataset_format,
+                        num_shards=num_shards,
+                        strategy=shard_strategy,
+                        batch_size=batch_size,
+                        seed=42,
+                    )
 
-                self._sharded_datasets.add(dataset_id)
+                    self._sharded_datasets.add(dataset_id)
 
         client = DatasetSharderClient()
         assignment = await client.assign_batches(

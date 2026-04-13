@@ -37,11 +37,11 @@ spec:
           readOnly: true
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "20m"
+            memory: "256Mi"
+            cpu: "100m"
           limits:
             memory: "512Mi"
-            cpu: "500m"
+            cpu: "300m"
         livenessProbe:
           httpGet:
             path: /health

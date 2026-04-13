@@ -133,21 +133,22 @@ class ParameterStorageService:
         self.enable_redis = enable_redis
         self.checkpoint_retention = checkpoint_retention
 
-        if redis_host is None or redis_port is None or redis_db is None:
-            redis_url = os.getenv("REDIS_URL")
-            if redis_url:
-                parsed = urlparse(redis_url)
-                redis_host = redis_host or parsed.hostname or "localhost"
-                redis_port = redis_port or parsed.port or 6379
-                redis_db = (
-                    redis_db
-                    if redis_db is not None
-                    else int((parsed.path or "/0").lstrip("/") or 0)
-                )
-            else:
-                redis_host = redis_host or os.getenv("REDIS_HOST", "localhost")
-                redis_port = redis_port or int(os.getenv("REDIS_PORT", "6379"))
-                redis_db = redis_db if redis_db is not None else int(os.getenv("REDIS_DB", "0"))
+        redis_url = os.getenv("REDIS_URL")
+        if redis_url:
+            parsed = urlparse(redis_url)
+            redis_password = parsed.password
+            redis_host = redis_host or parsed.hostname or "localhost"
+            redis_port = redis_port or parsed.port or 6379
+            redis_db = (
+                redis_db
+                if redis_db is not None
+                else int((parsed.path or "/0").lstrip("/") or 0)
+            )
+        else:
+            redis_password = os.getenv("REDIS_PASSWORD")
+            redis_host = redis_host or os.getenv("REDIS_HOST", "localhost")
+            redis_port = redis_port or int(os.getenv("REDIS_PORT", "6379"))
+            redis_db = redis_db if redis_db is not None else int(os.getenv("REDIS_DB", "0"))
 
         # Redis client
         if enable_redis:
@@ -155,6 +156,7 @@ class ParameterStorageService:
                 host=redis_host,
                 port=redis_port,
                 db=redis_db,
+                password=redis_password,
                 decode_responses=False,  # Binary mode for pickle
             )
             logger.info(f"Redis connected: {redis_host}:{redis_port}/{redis_db}")

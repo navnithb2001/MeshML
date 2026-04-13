@@ -92,7 +92,10 @@ async def shard_dataset(
         all_batches: List[Any] = []
         for shard in shards:
             batches = batch_manager.create_batches_from_shard(
-                shard=shard, loader=loader, batch_size=batch_size
+                shard=shard,
+                loader=loader,
+                batch_size=batch_size,
+                batch_scope=request.job_id or request.dataset_id,
             )
             total_batches += len(batches)
             all_batches.extend(batches)

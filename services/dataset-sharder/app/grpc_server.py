@@ -1,5 +1,6 @@
 """gRPC server for Dataset Sharder."""
 
+import asyncio
 import logging
 import os
 from typing import List, Optional
@@ -7,7 +8,7 @@ from typing import List, Optional
 import boto3
 import grpc
 from app.config import settings
-from app.core.storage import get_dataset_storage
+from app.core.storage import get_artifact_storage, get_dataset_storage
 from app.proto import dataset_sharder_pb2, dataset_sharder_pb2_grpc
 from app.services.batch_persistence import persist_batches
 from app.services.batch_storage import BatchManager, create_storage_backend
@@ -26,7 +27,7 @@ def _get_batch_manager() -> BatchManager:
         storage_type = "gcs" if settings.USE_GCS else "local"
     if storage_type == "gcs":
         storage = create_storage_backend(
-            storage_type="gcs", bucket_name=settings.GCS_BUCKET_DATASETS, base_prefix="batches"
+            storage_type="gcs", bucket_name=settings.GCS_BUCKET_ARTIFACTS, base_prefix="batches"
         )
     else:
         storage = create_storage_backend(storage_type="local")
@@ -50,8 +51,6 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
                     await context.abort(
                         grpc.StatusCode.INVALID_ARGUMENT, "Unsupported dataset format"
                     )
-
-            import asyncio
 
             loader = create_loader(request.dataset_path, format=dataset_format)
             metadata = await asyncio.to_thread(loader.load_metadata)
@@ -78,11 +77,23 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
             shard_summaries: List[dataset_sharder_pb2.ShardSummary] = []
             all_batches = []
             for shard in shards:
+                if context.cancelled():
+                    logger.warning(
+                        "gRPC context cancelled by client for job %s. Halting sharding.",
+                        request.job_id,
+                    )
+                    return dataset_sharder_pb2.ShardDatasetResponse(
+                        success=False,
+                        message="Sharding aborted by client.",
+                        dataset_id=request.dataset_id,
+                    )
+
                 batches = await asyncio.to_thread(
                     self.batch_manager.create_batches_from_shard,
                     shard=shard,
                     loader=loader,
                     batch_size=batch_size,
+                    batch_scope=request.job_id or request.dataset_id,
                 )
                 total_batches += len(batches)
                 all_batches.extend(batches)
@@ -182,7 +193,7 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
             _, metadata = self.batch_manager.load_batch(request.batch_id)
             storage_path = metadata.storage_path
             if storage_path.startswith("gs://"):
-                blob_path = storage_path.replace(f"gs://{settings.GCS_BUCKET_DATASETS}/", "")
+                blob_path = storage_path.replace(f"gs://{settings.GCS_BUCKET_ARTIFACTS}/", "")
                 emulator_endpoint = os.getenv("STORAGE_EMULATOR_URL")
                 if emulator_endpoint:
                     public_endpoint = os.getenv("STORAGE_PUBLIC_URL", emulator_endpoint)
@@ -204,11 +215,11 @@ class DatasetSharderServicer(dataset_sharder_pb2_grpc.DatasetSharderServicer):
                     )
                     download_url = s3.generate_presigned_url(
                         "get_object",
-                        Params={"Bucket": settings.GCS_BUCKET_DATASETS, "Key": blob_path},
+                        Params={"Bucket": settings.GCS_BUCKET_ARTIFACTS, "Key": blob_path},
                         ExpiresIn=3600,
                     )
                 else:
-                    storage_client = get_dataset_storage()
+                    storage_client = get_artifact_storage()
                     download_url = storage_client.generate_presigned_download_url(blob_path)
                 return dataset_sharder_pb2.GetBatchDownloadUrlResponse(
                     found=True,

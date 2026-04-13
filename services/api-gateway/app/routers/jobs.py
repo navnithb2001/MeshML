@@ -9,6 +9,8 @@ Endpoints:
 - GET /api/jobs/{job_id}/progress - Get training progress
 """
 
+import asyncio
+
 import logging
 import uuid
 from typing import List, Optional
@@ -136,7 +138,6 @@ async def _initialize_job_background(
     
     async with AsyncSessionLocal() as db:
         try:
-            import asyncio
             def _get_int(value, default):
                 try: return int(value)
                 except (TypeError, ValueError): return default
@@ -209,6 +210,11 @@ async def _initialize_job_background(
                 raise RuntimeError("No dataset provided for job")
                 
             while True:
+                # Force SQLAlchemy to drop cached states and fetch fresh DB rows
+                db.expire_all()
+                # Or start a fresh transaction boundary
+                await db.commit() 
+
                 # Check if job was cancelled
                 job_result = await db.execute(select(Job).where(Job.id == job_id))
                 current_job = job_result.scalar_one_or_none()
@@ -240,7 +246,7 @@ async def _initialize_job_background(
             if not dataset.gcs_path:
                 raise RuntimeError("Dataset has no storage path for sharding")
 
-            dataset_format = str(config.get("dataset_format") or dataset.format or "").lower()
+            dataset_format = dataset.format
             num_shards = _get_int(config.get("num_shards"), 10)
             if dataset.num_samples and dataset.num_samples > 0:
                 num_shards = max(1, min(num_shards, int(dataset.num_samples)))
@@ -254,8 +260,7 @@ async def _initialize_job_background(
             await db.commit()
             
             sharder = DatasetSharderClient()
-            shard_response = await sharder.shard_dataset(
-                dataset_sharder_pb2.ShardDatasetRequest(
+            request_obj = dataset_sharder_pb2.ShardDatasetRequest(
                     dataset_id=dataset_id,
                     job_id=job_id,
                     model_id=model_id or "",
@@ -266,7 +271,34 @@ async def _initialize_job_background(
                     batch_size=batch_size,
                     seed=42,
                 )
-            )
+            sharding_task = asyncio.create_task(sharder.shard_dataset(request_obj))
+
+            while not sharding_task.done():
+                await asyncio.sleep(3)
+                await db.commit()
+                db.expire_all()
+
+                job_check = await db.execute(select(Job).where(Job.id == job_id))
+                curr_job = job_check.scalar_one_or_none()
+
+                if curr_job and curr_job.status in ["cancelled", "failed"]:
+                    logger.info(
+                        "Job %s cancelled mid-sharding. Cancelling Dataset Sharder RPC.",
+                        job_id,
+                    )
+                    sharding_task.cancel()
+                    try:
+                        await sharding_task
+                    except asyncio.CancelledError:
+                        pass
+                    return
+
+            try:
+                shard_response = sharding_task.result()
+            except asyncio.CancelledError:
+                logger.info("Sharding task cancelled cleanly for job %s", job_id)
+                return
+
             if not shard_response.success:
                 raise RuntimeError(shard_response.message or "Dataset sharding failed")
             

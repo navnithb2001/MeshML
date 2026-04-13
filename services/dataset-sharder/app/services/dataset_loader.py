@@ -22,6 +22,9 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp"}
+HIDDEN_FILE_PREFIXES = ("._", ".DS_Store", "__MACOSX")
+
 
 def _parse_gs_uri(gs_uri: str) -> Tuple[str, str]:
     if not gs_uri.startswith("gs://"):
@@ -88,6 +91,12 @@ def _download_gs_bytes(gs_uri: str) -> bytes:
 
 def _download_gs_text(gs_uri: str) -> str:
     return _download_gs_bytes(gs_uri).decode("utf-8")
+
+
+def _is_valid_image_filename(filename: str) -> bool:
+    if any(filename.startswith(prefix) for prefix in HIDDEN_FILE_PREFIXES):
+        return False
+    return Path(filename).suffix.lower() in IMAGE_EXTENSIONS
 
 
 class DatasetFormat(str, Enum):
@@ -196,8 +205,11 @@ class ImageFolderLoader(DatasetLoader):
         if not dataset_dir.exists():
             raise FileNotFoundError(f"Dataset path not found: {self.dataset_path}")
 
-        # Get class directories
-        class_dirs = [d for d in dataset_dir.iterdir() if d.is_dir()]
+        # Get class directories, skipping Mac hidden artifacts
+        class_dirs = [
+            d for d in dataset_dir.iterdir()
+            if d.is_dir() and d.name != "__MACOSX" and not d.name.startswith("._")
+        ]
         class_names = sorted([d.name for d in class_dirs])
         self.class_to_idx = {name: idx for idx, name in enumerate(class_names)}
 
@@ -206,11 +218,9 @@ class ImageFolderLoader(DatasetLoader):
         total_samples = 0
         total_size = 0
 
-        image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp"}
-
         for class_dir in class_dirs:
             class_name = class_dir.name
-            image_files = [f for f in class_dir.iterdir() if f.suffix.lower() in image_extensions]
+            image_files = [f for f in class_dir.iterdir() if _is_valid_image_filename(f.name)]
 
             class_distribution[class_name] = len(image_files)
             total_samples += len(image_files)
@@ -244,7 +254,6 @@ class ImageFolderLoader(DatasetLoader):
 
         # Extract class directories and files
         class_files: Dict[str, List[Tuple[str, int]]] = {}  # class_name -> [(blob_name, size)]
-        image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp"}
 
         for blob_name, blob_size in blobs:
             # Skip directory markers
@@ -259,8 +268,15 @@ class ImageFolderLoader(DatasetLoader):
                 class_name = parts[0]
                 filename = parts[-1]
 
+                # Skip Mac hidden resource fork directories and files
+                if any(
+                    p == "__MACOSX" or p.startswith("._")
+                    for p in parts[:-1]
+                ):
+                    continue
+
                 # Check if it's an image
-                if Path(filename).suffix.lower() in image_extensions:
+                if _is_valid_image_filename(filename):
                     if class_name not in class_files:
                         class_files[class_name] = []
                     class_files[class_name].append((blob_name, blob_size))
@@ -645,8 +661,8 @@ def create_loader(
     Returns:
         DatasetLoader instance
     """
-    # Auto-detect format if not provided
-    if format is None:
+    # Auto-detect format if not provided or explicitly set to UNKNOWN
+    if format is None or format == DatasetFormat.UNKNOWN:
         if dataset_path.endswith(".csv"):
             format = DatasetFormat.CSV
         elif "annotations.json" in dataset_path or "coco" in dataset_path.lower():

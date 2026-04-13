@@ -28,13 +28,20 @@ spec:
             name: meshml-config
         - secretRef:
             name: meshml-secrets
+        env:
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /var/secrets/gcs/key.json
+        volumeMounts:
+        - name: gcs-signing-key
+          mountPath: /var/secrets/gcs
+          readOnly: true
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "20m"
+            memory: "512Mi"
+            cpu: "100m"
           limits:
-            memory: "256Mi"
-            cpu: "200m"
+            memory: "1Gi"
+            cpu: "300m"
         livenessProbe:
           httpGet:
             path: /health
@@ -47,6 +54,10 @@ spec:
             port: 8003
           initialDelaySeconds: 90
           periodSeconds: 5
+      volumes:
+      - name: gcs-signing-key
+        secret:
+          secretName: gcs-signing-key
 
 ---
 apiVersion: v1

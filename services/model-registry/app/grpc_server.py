@@ -143,6 +143,22 @@ class ModelRegistryServicer(model_registry_pb2_grpc.ModelRegistryServicer):
         blob = self.gcs_client.bucket.blob(key)
         return blob.generate_signed_url(version="v4", expiration=expires_in, method="GET")
 
+    def _object_exists(self, key: str) -> bool:
+        if self.emulator_url:
+            client = self._get_emulator_client()
+            self._ensure_emulator_bucket(client)
+            try:
+                client.head_object(Bucket=self.emulator_bucket, Key=key)
+                return True
+            except Exception:
+                return False
+
+        if not self.gcs_client:
+            return False
+
+        blob = self.gcs_client.bucket.blob(key)
+        return blob.exists()
+
     async def RegisterNewModel(self, request, context):
         try:
             if not self.gcs_client and not self.emulator_url:
@@ -309,6 +325,20 @@ class ModelRegistryServicer(model_registry_pb2_grpc.ModelRegistryServicer):
     async def GetFinalModelDownloadUrl(self, request, context):
         try:
             blob_path = f"final/{request.model_id}/model.pt"
+            async with async_session_maker() as session:
+                result = await session.execute(select(Model).where(Model.id == request.model_id))
+                model = result.scalar_one_or_none()
+                checkpoint_version = int(model.checkpoint_version or 0) if model else 0
+
+            if not await asyncio.to_thread(self._object_exists, blob_path):
+                if checkpoint_version > 0:
+                    blob_path = f"checkpoints/{request.model_id}/v{checkpoint_version}.pt"
+                else:
+                    return model_registry_pb2.GetFinalModelDownloadUrlResponse(found=False)
+
+                if not await asyncio.to_thread(self._object_exists, blob_path):
+                    return model_registry_pb2.GetFinalModelDownloadUrlResponse(found=False)
+
             download_url = self._generate_download_url(blob_path, expires_in=3600)
             storage_path = (
                 f"s3://{self.emulator_bucket}/{blob_path}"

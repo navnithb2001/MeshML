@@ -38,18 +38,20 @@ from app.services.persistence_loop import PersistenceLoop
 redis_client = None
 
 
-def _resolve_redis_config() -> tuple[str, int, int]:
+def _resolve_redis_config() -> tuple[str, int, int, str | None]:
     redis_url = os.getenv("REDIS_URL")
     if redis_url:
         parsed = urlparse(redis_url)
         host = parsed.hostname or "redis"
         port = parsed.port or 6379
         db = int((parsed.path or "/0").lstrip("/") or 0)
-        return host, port, db
+        password = parsed.password
+        return host, port, db, password
     host = os.getenv("REDIS_HOST", "redis")
     port = int(os.getenv("REDIS_PORT", "6379"))
     db = int(os.getenv("REDIS_DB", "0"))
-    return host, port, db
+    password = os.getenv("REDIS_PASSWORD")
+    return host, port, db, password
 
 
 @asynccontextmanager
@@ -62,12 +64,13 @@ async def lifespan(app: FastAPI):
 
     try:
         # Initialize Redis connection
-        redis_host, redis_port, _redis_db = _resolve_redis_config()
+        redis_host, redis_port, _redis_db, redis_password = _resolve_redis_config()
 
         redis_client = Redis(
             host=redis_host,
             port=redis_port,
             db=_redis_db,
+            password=redis_password,
             decode_responses=False,
             socket_connect_timeout=5,
         )
@@ -96,7 +99,7 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️ gRPC server not available")
 
     persistence_stop = asyncio.Event()
-    redis_host, redis_port, redis_db = _resolve_redis_config()
+    redis_host, redis_port, redis_db, _redis_password = _resolve_redis_config()
     persistence = PersistenceLoop(
         storage=ParameterStorageService(
             redis_host=redis_host,

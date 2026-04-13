@@ -17,13 +17,34 @@ from typing import Any, Dict, List, Optional, Union
 
 import boto3
 import numpy as np
-from app.core.storage import get_dataset_storage
+from app.core.storage import get_artifact_storage
 from app.services.dataset_loader import DataSample
 from app.services.dataset_sharder import ShardMetadata
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
+BATCH_SCOPE_SEPARATOR = "__"
+
+
+def _sanitize_batch_scope(scope: Optional[str]) -> Optional[str]:
+    if not scope:
+        return None
+    return str(scope).replace("/", "-").replace("\\", "-").strip() or None
+
+
+def _scoped_batch_id(scope: Optional[str], base_batch_id: str) -> str:
+    normalized_scope = _sanitize_batch_scope(scope)
+    if not normalized_scope:
+        return base_batch_id
+    return f"{normalized_scope}{BATCH_SCOPE_SEPARATOR}{base_batch_id}"
+
+
+def _split_batch_scope(batch_id: str) -> tuple[Optional[str], str]:
+    if BATCH_SCOPE_SEPARATOR not in batch_id:
+        return None, batch_id
+    scope, base_batch_id = batch_id.split(BATCH_SCOPE_SEPARATOR, 1)
+    return scope or None, base_batch_id
 
 
 @dataclass
@@ -128,9 +149,9 @@ class LocalBatchStorage(BatchStorage):
 
     def save_batch(self, samples: List[DataSample], metadata: BatchMetadata) -> str:
         """Save batch to local filesystem."""
-        # Create batch file path
-        batch_filename = f"{metadata.batch_id}.pkl"
-        batch_path = self.batches_dir / batch_filename
+        batch_path, metadata_path = self._paths_for_batch(metadata.batch_id)
+        batch_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Serialize samples
         batch_data = {"samples": samples, "num_samples": len(samples)}
@@ -147,8 +168,6 @@ class LocalBatchStorage(BatchStorage):
         metadata.checksum = checksum
         metadata.storage_path = str(batch_path)
 
-        # Save metadata
-        metadata_path = self.metadata_dir / f"{metadata.batch_id}.json"
         with open(metadata_path, "w") as f:
             json.dump(metadata.to_dict(), f, indent=2)
 
@@ -163,7 +182,7 @@ class LocalBatchStorage(BatchStorage):
     def load_batch(self, batch_id: str) -> tuple[List[DataSample], BatchMetadata]:
         """Load batch from local filesystem."""
         # Load metadata
-        metadata_path = self.metadata_dir / f"{batch_id}.json"
+        _, metadata_path = self._paths_for_batch(batch_id)
 
         if not metadata_path.exists():
             raise FileNotFoundError(f"Batch metadata not found: {batch_id}")
@@ -198,8 +217,7 @@ class LocalBatchStorage(BatchStorage):
 
     def delete_batch(self, batch_id: str) -> bool:
         """Delete batch from local filesystem."""
-        batch_path = self.batches_dir / f"{batch_id}.pkl"
-        metadata_path = self.metadata_dir / f"{batch_id}.json"
+        batch_path, metadata_path = self._paths_for_batch(batch_id)
 
         deleted = False
 
@@ -220,7 +238,7 @@ class LocalBatchStorage(BatchStorage):
         """List batches from local filesystem."""
         batches = []
 
-        for metadata_file in self.metadata_dir.glob("*.json"):
+        for metadata_file in self.metadata_dir.rglob("*.json"):
             try:
                 with open(metadata_file, "r") as f:
                     metadata_dict = json.load(f)
@@ -238,6 +256,12 @@ class LocalBatchStorage(BatchStorage):
                 continue
 
         return sorted(batches, key=lambda b: (b.shard_id, b.batch_index))
+
+    def _paths_for_batch(self, batch_id: str) -> tuple[Path, Path]:
+        scope, _ = _split_batch_scope(batch_id)
+        batch_dir = self.batches_dir / scope if scope else self.batches_dir
+        metadata_dir = self.metadata_dir / scope if scope else self.metadata_dir
+        return batch_dir / f"{batch_id}.pkl", metadata_dir / f"{batch_id}.json"
 
     def _calculate_checksum(self, file_path: Path) -> str:
         """Calculate SHA256 checksum of a file."""
@@ -273,7 +297,7 @@ class GCSBatchStorage(BatchStorage):
             bucket_name: GCS bucket name
             base_prefix: Base prefix for batch objects
         """
-        self.storage_client = get_dataset_storage()
+        self.storage_client = get_artifact_storage()
         self.bucket_name = bucket_name
         self.base_prefix = base_prefix
         self._s3 = self._emulator_s3_client()
@@ -309,8 +333,7 @@ class GCSBatchStorage(BatchStorage):
         # Calculate checksum
         checksum = hashlib.sha256(batch_bytes).hexdigest()
 
-        blob_name = f"{self.base_prefix}/batches/{metadata.batch_id}.pkl"
-        metadata_blob_name = f"{self.base_prefix}/metadata/{metadata.batch_id}.json"
+        blob_name, metadata_blob_name = self._object_names_for_batch(metadata.batch_id)
 
         # Update metadata before writing metadata object.
         metadata.size_bytes = len(batch_bytes)
@@ -349,8 +372,7 @@ class GCSBatchStorage(BatchStorage):
 
     def load_batch(self, batch_id: str) -> tuple[List[DataSample], BatchMetadata]:
         """Load batch from GCS."""
-        metadata_blob_name = f"{self.base_prefix}/metadata/{batch_id}.json"
-        batch_blob_name = f"{self.base_prefix}/batches/{batch_id}.pkl"
+        batch_blob_name, metadata_blob_name = self._object_names_for_batch(batch_id)
         if self._s3:
             try:
                 self._s3.head_object(Bucket=self.bucket_name, Key=metadata_blob_name)
@@ -395,8 +417,7 @@ class GCSBatchStorage(BatchStorage):
     def delete_batch(self, batch_id: str) -> bool:
         """Delete batch from GCS."""
         deleted = False
-        batch_blob_name = f"{self.base_prefix}/batches/{batch_id}.pkl"
-        metadata_blob_name = f"{self.base_prefix}/metadata/{batch_id}.json"
+        batch_blob_name, metadata_blob_name = self._object_names_for_batch(batch_id)
         if self._s3:
             for key in (batch_blob_name, metadata_blob_name):
                 try:
@@ -423,7 +444,7 @@ class GCSBatchStorage(BatchStorage):
 
     def list_batches(self, shard_id: Optional[int] = None) -> List[BatchMetadata]:
         """List batches from GCS."""
-        metadata_prefix = f"{self.base_prefix}/metadata/"
+        metadata_prefix = f"{self.base_prefix}/"
 
         batches = []
         if self._s3:
@@ -431,7 +452,7 @@ class GCSBatchStorage(BatchStorage):
             for page in paginator.paginate(Bucket=self.bucket_name, Prefix=metadata_prefix):
                 for item in page.get("Contents", []):
                     key = item["Key"]
-                    if not key.endswith(".json"):
+                    if not key.endswith(".json") or "/metadata/" not in key:
                         continue
                     try:
                         data = self._s3.get_object(Bucket=self.bucket_name, Key=key)["Body"].read()
@@ -446,7 +467,7 @@ class GCSBatchStorage(BatchStorage):
             bucket = self.storage_client.bucket
             blobs = bucket.list_blobs(prefix=metadata_prefix)
             for blob in blobs:
-                if not blob.name.endswith(".json"):
+                if not blob.name.endswith(".json") or "/metadata/" not in blob.name:
                     continue
                 try:
                     metadata_json = blob.download_as_text()
@@ -459,6 +480,17 @@ class GCSBatchStorage(BatchStorage):
                     continue
 
         return sorted(batches, key=lambda b: (b.shard_id, b.batch_index))
+
+    def _object_names_for_batch(self, batch_id: str) -> tuple[str, str]:
+        scope, _ = _split_batch_scope(batch_id)
+        if scope:
+            prefix = f"{self.base_prefix}/{scope}"
+        else:
+            prefix = self.base_prefix
+        return (
+            f"{prefix}/{batch_id}.pkl",
+            f"{prefix}/metadata/{batch_id}.json",
+        )
 
 
 class BatchManager:
@@ -476,7 +508,11 @@ class BatchManager:
         self.auto_cleanup = auto_cleanup
 
     def create_batches_from_shard(
-        self, shard: ShardMetadata, loader, batch_size: int  # DatasetLoader
+        self,
+        shard: ShardMetadata,
+        loader,
+        batch_size: int,
+        batch_scope: Optional[str] = None,  # DatasetLoader
     ) -> List[BatchMetadata]:
         """
         Create and store batches from a shard.
@@ -498,16 +534,16 @@ class BatchManager:
             f"({len(sample_indices)} samples, batch_size={batch_size})"
         )
 
-        for batch_idx in range(num_batches):
+        import concurrent.futures
+        from datetime import datetime
+
+        def _process_single_batch(batch_idx):
             start_idx = batch_idx * batch_size
             end_idx = min(start_idx + batch_size, len(sample_indices))
-
             batch_sample_indices = sample_indices[start_idx:end_idx]
 
-            # Load samples in parallel to mitigate cloud network I/O latency
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=min(32, len(batch_sample_indices))) as executor:
-                samples = list(executor.map(loader.get_sample, batch_sample_indices))
+            # Let the outer thread pool handle parallelism. Fetch samples directly to avoid thread explosion.
+            samples = [loader.get_sample(i) for i in batch_sample_indices]
 
             # Calculate class distribution
             class_dist = {}
@@ -516,7 +552,10 @@ class BatchManager:
                 class_dist[label] = class_dist.get(label, 0) + 1
 
             # Create batch metadata
-            batch_id = f"shard_{shard.shard_id}_batch_{batch_idx}"
+            batch_id = _scoped_batch_id(
+                batch_scope,
+                f"shard_{shard.shard_id}_batch_{batch_idx}",
+            )
 
             metadata = BatchMetadata(
                 batch_id=batch_id,
@@ -525,19 +564,26 @@ class BatchManager:
                 num_samples=len(samples),
                 sample_indices=batch_sample_indices,
                 class_distribution=class_dist,
-                size_bytes=0,  # Will be calculated during save
-                checksum="",  # Will be calculated during save
-                storage_path="",  # Will be set during save
+                size_bytes=0,
+                checksum="",
+                storage_path="",
                 format="pickle",
                 created_at=datetime.utcnow().isoformat(),
             )
 
             # Save batch
             self.storage.save_batch(samples, metadata)
-            batches_metadata.append(metadata)
-            
-            progress_pct = ((batch_idx + 1) / num_batches) * 100
-            logger.info(f"Shard {shard.shard_id} sharding progress: {progress_pct:.2f}% ({batch_idx + 1}/{num_batches} batches completed)")
+            return metadata
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(_process_single_batch, i) for i in range(num_batches)]
+            completed = 0
+            for future in concurrent.futures.as_completed(futures):
+                metadata = future.result()
+                batches_metadata.append(metadata)
+                completed += 1
+                progress_pct = (completed / num_batches) * 100
+                logger.info(f"Shard {shard.shard_id} sharding progress: {progress_pct:.2f}% ({completed}/{num_batches} batches completed)")
 
         logger.info(f"Created {len(batches_metadata)} batches for shard {shard.shard_id}")
 

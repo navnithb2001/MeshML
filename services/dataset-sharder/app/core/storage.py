@@ -36,6 +36,11 @@ class StorageClient:
             else:
                 # Will use default credentials (works in GCP environments)
                 self._client = storage.Client()
+                
+            from requests.adapters import HTTPAdapter
+            adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100)
+            self._client._http.mount("https://", adapter)
+            self._client._http.mount("http://", adapter)
         return self._client
 
     @property

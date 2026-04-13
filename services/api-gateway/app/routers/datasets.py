@@ -13,19 +13,20 @@ import logging
 import os
 import shutil
 import tarfile
+import threading
+import time
 import uuid
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import aiohttp
 import asyncio
 import boto3
 import csv
-import json
-import openpyxl
-import pandas as pd
+import requests
+from requests.adapters import HTTPAdapter
 from botocore.config import Config
 from google.auth.credentials import AnonymousCredentials
 from google.cloud import storage
@@ -50,10 +51,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+UPLOAD_WORKERS = 8
 
 # Storage configuration
 UPLOAD_DIR = Path("/tmp/meshml-uploads")  # Temporary upload location
-GCS_BUCKET = "meshml-datasets"  # GCS bucket for permanent storage
+GCS_BUCKET = os.getenv("GCS_BUCKET_DATASETS", "meshml-datasets")
+
+_HIDDEN_PATH_PARTS = {"__MACOSX", ".DS_Store"}
+
+
+class DatasetProcessingCancelled(Exception):
+    """Raised when a dataset is deleted while background processing is still running."""
 
 
 def _to_dataset_response(dataset: Dataset) -> DatasetResponse:
@@ -575,6 +583,47 @@ def _parse_dataset_url(url: str) -> str:
     return url
 
 
+async def _get_dataset_status(dataset_id: str) -> Optional[str]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Dataset.status).where(Dataset.id == dataset_id))
+        return result.scalar_one_or_none()
+
+
+async def _ensure_dataset_not_deleting(dataset_id: str) -> None:
+    status_value = await _get_dataset_status(dataset_id)
+    if status_value is None or status_value == "deleting":
+        raise DatasetProcessingCancelled(f"Dataset {dataset_id} was deleted during processing")
+
+
+async def _run_with_dataset_cancellation(
+    dataset_id: str,
+    awaitable: Awaitable[Any],
+    *,
+    poll_interval: float = 2.0,
+    on_cancel: Optional[Callable[[], None]] = None,
+):
+    task = asyncio.create_task(awaitable)
+    try:
+        while not task.done():
+            await asyncio.sleep(poll_interval)
+            status_value = await _get_dataset_status(dataset_id)
+            if status_value is None or status_value == "deleting":
+                logger.info(
+                    "Dataset %s deleted during background processing. Cancelling in-flight task.",
+                    dataset_id,
+                )
+                if on_cancel is not None:
+                    on_cancel()
+                task.cancel()
+                raise DatasetProcessingCancelled(
+                    f"Dataset {dataset_id} was deleted during processing"
+                )
+        return await task
+    except asyncio.CancelledError:
+        task.cancel()
+        raise
+
+
 # ==================== Background Tasks ====================
 
 
@@ -587,6 +636,8 @@ async def _process_local_upload_background(
     """Process uploaded dataset in background: extract, validate, and trigger GCS upload"""
     upload_path = Path(upload_path_str)
     try:
+        await _ensure_dataset_not_deleting(dataset_id)
+
         # Check if any file is an archive (zip, tar, tar.gz)
         archive_file = None
         for file_path in upload_path.iterdir():
@@ -616,9 +667,13 @@ async def _process_local_upload_background(
                 archive_file.unlink()
                 extract_path.rmdir()
 
-            await asyncio.to_thread(_extract_blocking)
+            await _run_with_dataset_cancellation(
+                dataset_id,
+                asyncio.to_thread(_extract_blocking),
+            )
 
         # Flatten wrapper directory if archive extracted to a single top-level folder.
+        await _ensure_dataset_not_deleting(dataset_id)
         _normalize_single_root_directory(upload_path)
 
         # Detect dataset format if not provided
@@ -642,6 +697,7 @@ async def _process_local_upload_background(
         if not validation_result["valid"]:
             raise ValueError(f"Invalid dataset structure: {validation_result['error']}")
 
+        await _ensure_dataset_not_deleting(dataset_id)
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Dataset).where(Dataset.id == dataset_id))
             dataset = result.scalar_one_or_none()
@@ -663,6 +719,10 @@ async def _process_local_upload_background(
             batch_size=None,
         )
 
+    except DatasetProcessingCancelled:
+        logger.info("Dataset %s processing aborted because it was deleted", dataset_id)
+        if upload_path.exists():
+            shutil.rmtree(upload_path, ignore_errors=True)
     except Exception as e:
         logger.error(f"Background processing failed for dataset {dataset_id}: {e}", exc_info=True)
         if upload_path.exists():
@@ -682,6 +742,7 @@ async def _upload_to_gcs_background(
     """Upload dataset to GCS in background and trigger sharding"""
     try:
         logger.info(f"Starting GCS upload for dataset {dataset_id}")
+        await _ensure_dataset_not_deleting(dataset_id)
 
         def _parse_gcs_uri(uri: str) -> tuple[str, str]:
             if not uri.startswith("gs://"):
@@ -699,13 +760,26 @@ async def _upload_to_gcs_background(
         if local_root.is_file():
             files = [local_root]
         else:
-            files = [
-                Path(root) / filename
-                for root, _, filenames in os.walk(local_root)
-                for filename in filenames
-            ]
+            files = []
+            for root, dirs, filenames in os.walk(local_root):
+                # Prune hidden Mac directories in-place so os.walk doesn't descend into them
+                dirs[:] = [
+                    d for d in dirs
+                    if d not in _HIDDEN_PATH_PARTS and not d.startswith("._")
+                ]
+                root_parts = set(Path(root).relative_to(local_root).parts)
+                if root_parts & _HIDDEN_PATH_PARTS:
+                    continue
+                for filename in filenames:
+                    if filename.startswith("._") or filename in _HIDDEN_PATH_PARTS:
+                        continue
+                    files.append(Path(root) / filename)
         emulator_url = os.getenv("STORAGE_EMULATOR_URL")
+        cancel_event = threading.Event()
+
         def _blocking_upload():
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
             if emulator_url:
                 # MinIO/S3-compatible upload path for local dev.
                 s3_client = boto3.client(
@@ -720,30 +794,63 @@ async def _upload_to_gcs_background(
                         or "meshml_minio_password"
                     ),
                     region_name="us-east-1",
-                    config=Config(signature_version="s3v4"),
+                    config=Config(signature_version="s3v4", max_pool_connections=UPLOAD_WORKERS),
                 )
                 try:
                     s3_client.head_bucket(Bucket=bucket_name)
                 except Exception:
                     s3_client.create_bucket(Bucket=bucket_name)
-                for file_path in files:
+
+                def _upload_single_file_s3(file_path):
+                    if cancel_event.is_set():
+                        return
                     rel_path = str(file_path.relative_to(local_root)).replace(os.sep, "/")
                     object_key = f"{prefix}{rel_path}" if rel_path else prefix.rstrip("/")
                     s3_client.upload_file(str(file_path), bucket_name, object_key)
+
+                with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
+                    futures = [executor.submit(_upload_single_file_s3, fp) for fp in files]
+                    for future in as_completed(futures):
+                        if cancel_event.is_set():
+                            for pending in futures:
+                                pending.cancel()
+                            return
+                        future.result()
             else:
                 storage_client = storage.Client()
+                adapter = HTTPAdapter(
+                    pool_connections=UPLOAD_WORKERS,
+                    pool_maxsize=UPLOAD_WORKERS,
+                )
+                storage_client._http.mount("https://", adapter)
+                storage_client._http.mount("http://", adapter)
                 bucket = storage_client.bucket(bucket_name)
-                if not bucket.exists():
-                    bucket = storage_client.create_bucket(bucket_name)
-                for file_path in files:
+
+                def _upload_single_file_gcs(file_path):
+                    if cancel_event.is_set():
+                        return
                     rel_path = str(file_path.relative_to(local_root)).replace(os.sep, "/")
                     blob_name = f"{prefix}{rel_path}" if rel_path else prefix.rstrip("/")
                     blob = bucket.blob(blob_name)
                     blob.upload_from_filename(str(file_path))
 
-        await asyncio.to_thread(_blocking_upload)
+                with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
+                    futures = [executor.submit(_upload_single_file_gcs, fp) for fp in files]
+                    for future in as_completed(futures):
+                        if cancel_event.is_set():
+                            for pending in futures:
+                                pending.cancel()
+                            return
+                        future.result()
+
+        await _run_with_dataset_cancellation(
+            dataset_id,
+            asyncio.to_thread(_blocking_upload),
+            on_cancel=cancel_event.set,
+        )
 
         logger.info(f"GCS upload completed for dataset {dataset_id}")
+        await _ensure_dataset_not_deleting(dataset_id)
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Dataset).where(Dataset.id == dataset_id))
             dataset = result.scalar_one_or_none()
@@ -751,6 +858,8 @@ async def _upload_to_gcs_background(
                 dataset.status = "uploaded"
                 dataset.gcs_path = gcs_path
                 await session.commit()
+    except DatasetProcessingCancelled:
+        logger.info("Dataset %s upload aborted because it was deleted", dataset_id)
     except Exception as e:
         logger.error(f"GCS upload failed for dataset {dataset_id}: {e}")
         await _mark_dataset_failed(dataset_id, str(e))
@@ -768,10 +877,11 @@ async def _mark_dataset_failed(dataset_id: str, message: str) -> None:
 
 async def _download_from_url_background(dataset_id: str, url: str, format: str):
     """Download dataset from URL in background"""
+    download_path = Path(f"/tmp/meshml-uploads/{dataset_id}")
     try:
         logger.info(f"Starting download for dataset {dataset_id} from {url}")
+        await _ensure_dataset_not_deleting(dataset_id)
 
-        download_path = Path(f"/tmp/meshml-uploads/{dataset_id}")
         download_path.mkdir(parents=True, exist_ok=True)
 
         # Download file
@@ -782,8 +892,12 @@ async def _download_from_url_background(dataset_id: str, url: str, format: str):
 
                 # Save to file
                 file_path = download_path / "dataset.zip"
+                last_cancel_check = time.monotonic()
                 with open(file_path, "wb") as f:
                     async for chunk in response.content.iter_chunked(8192):
+                        if time.monotonic() - last_cancel_check >= 2.0:
+                            await _ensure_dataset_not_deleting(dataset_id)
+                            last_cancel_check = time.monotonic()
                         f.write(chunk)
 
         # Extract if archive
@@ -793,10 +907,14 @@ async def _download_from_url_background(dataset_id: str, url: str, format: str):
                     zip_ref.extractall(download_path)
                 file_path.unlink()
             
-            await asyncio.to_thread(_extract_url_blocking)
+            await _run_with_dataset_cancellation(
+                dataset_id,
+                asyncio.to_thread(_extract_url_blocking),
+            )
 
         logger.info(f"Download completed for dataset {dataset_id}")
 
+        await _ensure_dataset_not_deleting(dataset_id)
         _normalize_single_root_directory(download_path)
 
         dataset_format = format
@@ -808,6 +926,7 @@ async def _download_from_url_background(dataset_id: str, url: str, format: str):
         if not validation_result["valid"]:
             raise Exception(f"Invalid dataset structure: {validation_result.get('error')}")
 
+        await _ensure_dataset_not_deleting(dataset_id)
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Dataset).where(Dataset.id == dataset_id))
             dataset = result.scalar_one_or_none()
@@ -828,6 +947,9 @@ async def _download_from_url_background(dataset_id: str, url: str, format: str):
             shard_strategy=None,
             batch_size=None,
         )
+    except DatasetProcessingCancelled:
+        logger.info("Dataset %s download aborted because it was deleted", dataset_id)
+        shutil.rmtree(download_path, ignore_errors=True)
     except Exception as e:
         logger.error(f"Download failed for dataset {dataset_id}: {e}")
         await _mark_dataset_failed(dataset_id, str(e))
@@ -839,6 +961,17 @@ async def _delete_dataset_background(
     gcs_path: Optional[str]
 ):
     """Background task to delete dataset files and DB record."""
+    batch_paths_to_delete: List[str] = []
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            text(
+                "SELECT gcs_path FROM data_batches "
+                "WHERE job_id IN (SELECT id::text FROM jobs WHERE dataset_id = :dataset_id)"
+            ),
+            {"dataset_id": dataset_id},
+        )
+        batch_paths_to_delete = [row[0] for row in result.fetchall() if row[0]]
+
     try:
         # Delete local files
         if local_path and Path(local_path).exists():
@@ -862,6 +995,32 @@ async def _delete_dataset_background(
                 bucket_name, prefix = _parse_gcs_uri(gcs_path)
 
                 def _delete_storage_blocking():
+                    def _chunked(items: List[Any], size: int) -> List[List[Any]]:
+                        return [items[i : i + size] for i in range(0, len(items), size)]
+
+                    delete_pool_size = 8
+
+                    batch_object_keys: List[str] = []
+                    for storage_path in batch_paths_to_delete:
+                        try:
+                            artifact_bucket_name, batch_key = _parse_gcs_uri(storage_path)
+                        except ValueError:
+                            continue
+                        if artifact_bucket_name:
+                            if batch_key.endswith(".pkl"):
+                                metadata_key = batch_key.replace("/metadata/", "/", 1)
+                                if "/metadata/" not in metadata_key:
+                                    parts = batch_key.rsplit("/", 1)
+                                    if len(parts) == 2:
+                                        metadata_key = f"{parts[0]}/metadata/{parts[1][:-4]}.json"
+                                    else:
+                                        metadata_key = f"metadata/{batch_key[:-4]}.json"
+                            else:
+                                metadata_key = batch_key
+                            batch_object_keys.extend([batch_key, metadata_key])
+
+                    artifacts_bucket_name = os.getenv("GCS_BUCKET_ARTIFACTS", "meshml-artifacts")
+
                     if emulator_url:
                         try:
                             storage_client = storage.Client(
@@ -869,10 +1028,21 @@ async def _delete_dataset_background(
                                 project="local",
                                 client_options={"api_endpoint": emulator_url},
                             )
+                            from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+
                             bucket = storage_client.bucket(bucket_name)
                             blobs = list(bucket.list_blobs(prefix=prefix))
-                            for blob in blobs:
-                                blob.delete()
+                            with ThreadPoolExecutor(max_workers=delete_pool_size) as ex:
+                                for fut in _as_completed(ex.submit(blob.delete) for blob in blobs):
+                                    fut.result()
+                            artifacts_bucket = storage_client.bucket(artifacts_bucket_name)
+                            artifact_blobs = [artifacts_bucket.blob(key) for key in batch_object_keys]
+                            with ThreadPoolExecutor(max_workers=delete_pool_size) as ex:
+                                for fut in _as_completed(
+                                    ex.submit(blob.delete, if_generation_match=None)
+                                    for blob in artifact_blobs
+                                ):
+                                    fut.result()
                         except Exception:
                             client = boto3.client(
                                 "s3",
@@ -882,26 +1052,47 @@ async def _delete_dataset_background(
                                 region_name="us-east-1",
                                 config=Config(signature_version="s3v4"),
                             )
-                            objects = [
-                                {"Key": obj["Key"]}
-                                for obj in client.list_objects_v2(Bucket=bucket_name, Prefix=prefix).get(
-                                    "Contents", []
+
+                            def _delete_s3_keys(bkt: str, keys: List[str]) -> None:
+                                for i in range(0, len(keys), 1000):
+                                    chunk = keys[i : i + 1000]
+                                    if chunk:
+                                        client.delete_objects(
+                                            Bucket=bkt,
+                                            Delete={"Objects": [{"Key": key} for key in chunk]},
+                                        )
+
+                            paginator = client.get_paginator("list_objects_v2")
+                            raw_keys: List[str] = []
+                            for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+                                raw_keys.extend(
+                                    obj["Key"] for obj in page.get("Contents", []) if obj.get("Key")
                                 )
-                            ]
-                            if objects:
-                                client.delete_objects(Bucket=bucket_name, Delete={"Objects": objects})
+
+                            _delete_s3_keys(bucket_name, raw_keys)
+                            _delete_s3_keys(artifacts_bucket_name, batch_object_keys)
                     else:
+                        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
                         storage_client = storage.Client()
                         bucket = storage_client.bucket(bucket_name)
-                        blobs = list(bucket.list_blobs(prefix=prefix))
-                        for blob in blobs:
-                            blob.delete()
+                        raw_blobs = list(bucket.list_blobs(prefix=prefix))
+                        raw_chunks = _chunked(raw_blobs, 1000)
+                        with ThreadPoolExecutor(max_workers=delete_pool_size) as ex:
+                            for fut in _as_completed(ex.submit(bucket.delete_blobs, c) for c in raw_chunks):
+                                fut.result()
+
+                        artifacts_bucket = storage_client.bucket(artifacts_bucket_name)
+                        batch_blobs = [artifacts_bucket.blob(key) for key in batch_object_keys]
+                        batch_chunks = _chunked(batch_blobs, 1000)
+                        with ThreadPoolExecutor(max_workers=delete_pool_size) as ex:
+                            for fut in _as_completed(ex.submit(artifacts_bucket.delete_blobs, c) for c in batch_chunks):
+                                fut.result()
 
                 # Run blocking storage deletion in background thread pool to prevent freezing the gateway
                 await asyncio.to_thread(_delete_storage_blocking)
             except Exception as e:
-                logger.warning(f"Failed to delete dataset objects from storage: {e}")
-                
+                logger.exception("Failed to delete dataset objects from storage for %s", dataset_id)
+                raise
         # Now delete database record
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
@@ -924,4 +1115,14 @@ async def _delete_dataset_background(
                 logger.warning(f"Failed to cleanup data_batches for dataset {dataset_id}: {e}")
 
     except Exception as e:
-        logger.error(f"Error in background dataset deletion task for {dataset_id}: {e}")
+        logger.exception("Background dataset deletion failed for %s", dataset_id)
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+                dataset = result.scalar_one_or_none()
+                if dataset:
+                    dataset.status = "failed"
+                    dataset.error_message = f"Deletion failed: {str(e)[:500]}"
+                    await db.commit()
+        except Exception:
+            logger.exception("Failed to mark dataset %s as failed after deletion error", dataset_id)

@@ -5,6 +5,7 @@ Receives training metrics over gRPC, publishes to Redis, and persists to Postgre
 """
 
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -136,16 +137,28 @@ async def _progress_bridge(stop_event: asyncio.Event, interval_seconds: int = 7)
     Periodically aggregate batch completion and update jobs.progress.
     """
     from app.db import AsyncSessionLocal
-    from sqlalchemy import text
+    from sqlalchemy import String, bindparam, text
+
+    update_progress_stmt = text(
+        "UPDATE jobs "
+        "SET progress = CAST(:progress AS json) "
+        "WHERE id::text = :job_id"
+    ).bindparams(
+        bindparam("progress", type_=String),
+        bindparam("job_id", type_=String),
+    )
 
     while not stop_event.is_set():
         try:
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
                     text(
-                        "SELECT job_id, COUNT(*) AS total_batches, "
-                        "SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed_batches "
-                        "FROM data_batches GROUP BY job_id"
+                        "SELECT db.job_id, COUNT(*) AS total_batches, "
+                        "SUM(CASE WHEN db.status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed_batches "
+                        "FROM data_batches db "
+                        "JOIN jobs j ON j.id::text = db.job_id "
+                        "WHERE j.status IN ('pending', 'running') "
+                        "GROUP BY db.job_id"
                     )
                 )
                 rows = result.fetchall()
@@ -153,18 +166,33 @@ async def _progress_bridge(stop_event: asyncio.Event, interval_seconds: int = 7)
                     job_id = row[0]
                     total_batches = int(row[1] or 0)
                     completed_batches = int(row[2] or 0)
-                    await session.execute(
+                    latest_metric = await session.execute(
                         text(
-                            "UPDATE jobs "
-                            "SET progress = jsonb_set("
-                            "  jsonb_set(COALESCE(progress, '{}'::jsonb), '{current_batch}', to_jsonb(:completed), true),"
-                            "  '{total_batches}', to_jsonb(:total), true"
-                            ") "
-                            "WHERE id::text = :job_id"
+                            "SELECT loss, accuracy "
+                            "FROM metrics "
+                            "WHERE job_id = :job_id "
+                            "ORDER BY step DESC, timestamp DESC "
+                            "LIMIT 1"
                         ),
+                        {"job_id": str(job_id)},
+                    )
+                    latest_row = latest_metric.first()
+                    latest_loss = float(latest_row[0]) if latest_row and latest_row[0] is not None else None
+                    latest_accuracy = (
+                        float(latest_row[1]) if latest_row and latest_row[1] is not None else None
+                    )
+                    progress_payload = json.dumps(
                         {
-                            "completed": completed_batches,
-                            "total": total_batches,
+                            "current_batch": completed_batches,
+                            "total_batches": total_batches,
+                            "loss": latest_loss,
+                            "accuracy": latest_accuracy,
+                        }
+                    )
+                    await session.execute(
+                        update_progress_stmt,
+                        {
+                            "progress": progress_payload,
                             "job_id": str(job_id),
                         },
                     )

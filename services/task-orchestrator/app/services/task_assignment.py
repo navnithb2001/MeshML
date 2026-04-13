@@ -18,7 +18,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from app.db import AsyncSessionLocal
+from app.models import DataBatch
 from app.services.dataset_sharder_client import DatasetSharderClient
+from sqlalchemy import func, select
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +226,13 @@ class TaskAssignmentService:
         self._sharded_datasets: Set[str] = set()
         self._shard_lock = asyncio.Lock()
 
+    async def _job_has_persisted_batches(self, job_id: str) -> bool:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(func.count()).select_from(DataBatch).where(DataBatch.job_id == job_id)
+            )
+            return int(result.scalar() or 0) > 0
+
         logger.info(
             f"TaskAssignmentService initialized with strategy={self.config.default_strategy.value}"
         )
@@ -324,36 +334,46 @@ class TaskAssignmentService:
 
         async with self._shard_lock:
             if dataset_id not in self._sharded_datasets:
-                bucket = os.getenv("DATASET_GCS_BUCKET", "meshml-datasets")
-                template = os.getenv("DATASET_PATH_TEMPLATE", "gs://{bucket}/{dataset_id}/")
-                dataset_path = template.format(bucket=bucket, dataset_id=dataset_id)
+                if await self._job_has_persisted_batches(job.job_id):
+                    logger.info(
+                        "Skipping re-sharding for job %s dataset %s because persisted batches already exist",
+                        job.job_id,
+                        dataset_id,
+                    )
+                    self._sharded_datasets.add(dataset_id)
+                else:
+                    bucket = os.getenv("DATASET_GCS_BUCKET", "meshml-datasets")
+                    template = os.getenv("DATASET_PATH_TEMPLATE", "gs://{bucket}/{dataset_id}/")
+                    dataset_path = template.format(bucket=bucket, dataset_id=dataset_id)
 
-                dataset_format = None
-                if hasattr(job.metadata, "tags") and isinstance(job.metadata.tags, dict):
-                    dataset_format = job.metadata.tags.get("dataset_format")
+                    dataset_format = None
+                    if hasattr(job.metadata, "tags") and isinstance(job.metadata.tags, dict):
+                        dataset_format = job.metadata.tags.get("dataset_format")
 
-                num_shards = int(os.getenv("DATASET_DEFAULT_SHARDS", "10"))
-                if hasattr(job.metadata, "tags") and isinstance(job.metadata.tags, dict):
-                    num_shards = int(job.metadata.tags.get("num_shards", num_shards))
+                    num_shards = int(os.getenv("DATASET_DEFAULT_SHARDS", "10"))
+                    if hasattr(job.metadata, "tags") and isinstance(job.metadata.tags, dict):
+                        num_shards = int(job.metadata.tags.get("num_shards", num_shards))
 
-                shard_strategy = "stratified"
-                if hasattr(job.metadata, "tags") and isinstance(job.metadata.tags, dict):
-                    shard_strategy = job.metadata.tags.get("shard_strategy", shard_strategy)
+                    shard_strategy = "stratified"
+                    if hasattr(job.metadata, "tags") and isinstance(job.metadata.tags, dict):
+                        shard_strategy = job.metadata.tags.get("shard_strategy", shard_strategy)
 
-                batch_size = job.metadata.batch_size
+                    batch_size = job.metadata.batch_size
 
-                client = DatasetSharderClient()
-                await client.shard_dataset(
-                    dataset_id=dataset_id,
-                    dataset_path=dataset_path,
-                    format=dataset_format,
-                    num_shards=num_shards,
-                    strategy=shard_strategy,
-                    batch_size=batch_size,
-                    seed=42,
-                )
+                    client = DatasetSharderClient()
+                    await client.shard_dataset(
+                        dataset_id=dataset_id,
+                        job_id=job.job_id,
+                        model_id=job.metadata.model_id,
+                        dataset_path=dataset_path,
+                        format=dataset_format,
+                        num_shards=num_shards,
+                        strategy=shard_strategy,
+                        batch_size=batch_size,
+                        seed=42,
+                    )
 
-                self._sharded_datasets.add(dataset_id)
+                    self._sharded_datasets.add(dataset_id)
 
         # Assign batches for this worker
         client = DatasetSharderClient()

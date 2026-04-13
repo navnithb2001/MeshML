@@ -11,11 +11,13 @@ Handles:
 
 import asyncio
 import io
+import json
 import logging
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+import httpx
 import torch
 import torch.nn as nn
 from meshml_worker.communication.heartbeat import HeartbeatSender
@@ -34,6 +36,10 @@ from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
+
+
+class JobCancelledError(RuntimeError):
+    """Raised when the running job is cancelled remotely."""
 
 
 class Trainer:
@@ -85,6 +91,10 @@ class Trainer:
         self.model_path = model_path
         self.data_paths = data_paths
         self.pause_event = pause_event
+        self.api_base_url = getattr(config, "api_base_url", "http://localhost:8000").rstrip("/")
+        self.auth_token = self._load_auth_token()
+        self._last_job_status_check = 0.0
+        self._job_status_poll_interval = 3.0
 
         # Components
         self.model: Optional[nn.Module] = None
@@ -123,6 +133,35 @@ class Trainer:
 
         logger.info(f"Trainer initialized: device={device}")
 
+    def _load_auth_token(self) -> Optional[str]:
+        auth_path = Path.home() / ".meshml" / "auth.json"
+        if not auth_path.exists():
+            return None
+        try:
+            payload = json.loads(auth_path.read_text())
+            token = payload.get("token")
+            return str(token) if token else None
+        except Exception:
+            return None
+
+    async def _ensure_job_active(self, job_id: str, force: bool = False) -> None:
+        if not self.auth_token:
+            return
+        now = time.monotonic()
+        if not force and now - self._last_job_status_check < self._job_status_poll_interval:
+            return
+
+        headers = {"Authorization": f"Bearer {self.auth_token}"}
+        url = f"{self.api_base_url}/api/jobs/{job_id}"
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+        self._last_job_status_check = now
+        status = str(payload.get("status", "")).lower()
+        if status in {"cancelled", "failed"}:
+            raise JobCancelledError(f"Job {job_id} is {status}; stopping worker training.")
+
     async def train(
         self, model_id: str, job_id: str, batch_ids: List[str], epochs: Optional[int] = None
     ) -> None:
@@ -145,6 +184,7 @@ class Trainer:
         try:
             # Initialize components (without data loading and checkpoint)
             self._initialize_training_minimal(model_id)
+            await self._ensure_job_active(job_id, force=True)
 
             # Load data - use pre-downloaded shards
             if self.data_paths:
@@ -167,6 +207,7 @@ class Trainer:
                 )
 
             for epoch in range(self.current_epoch, max_epochs):
+                await self._ensure_job_active(job_id)
                 self.current_epoch = epoch
 
                 logger.info("-" * 60)
@@ -202,6 +243,9 @@ class Trainer:
 
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")
+            raise
+        except JobCancelledError:
+            logger.info("Training stopped because job %s was cancelled or failed.", job_id)
             raise
         except Exception as e:
             logger.error(f"Orchestrated training failed: {e}", exc_info=True)
@@ -364,9 +408,11 @@ class Trainer:
                 await self.metrics_client.send(
                     step=self.current_iteration,
                     loss=loss.item(),
-                    accuracy=batch_metrics.get("accuracy", 0.0),
+                    accuracy=batch_metrics.get("accuracy", 0.0) / 100.0,
                     timestamp_ms=int(time.time() * 1000),
                 )
+
+            await self._ensure_job_active(job_id)
 
             if batch_ids and (batch_idx + 1) % batches_per_shard == 0 and current_batch_idx < len(batch_ids):
                 current_batch_idx += 1
@@ -457,7 +503,14 @@ class Trainer:
         )
 
         # Create model instance
-        self.model = create_model(device=self.device)
+        # The documented contract is `def create_model():` (no parameters).
+        # Pass device only if the user's function explicitly accepts it.
+        import inspect as _inspect
+        _sig = _inspect.signature(create_model)
+        if "device" in _sig.parameters:
+            self.model = create_model(device=self.device)
+        else:
+            self.model = create_model()
         self.model = self.model.to(self.device)  # Ensure model is on correct device
         self.create_dataloader_fn = create_dataloader
 
