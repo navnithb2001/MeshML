@@ -132,6 +132,9 @@ class ParameterStorageService:
         """
         self.enable_redis = enable_redis
         self.checkpoint_retention = checkpoint_retention
+        # Number of recent parameter-version snapshots to retain in Redis.
+        # Older versions are pruned on write to bound memory usage.
+        self.param_version_history = int(os.getenv("REDIS_PARAM_VERSION_HISTORY", "3"))
 
         redis_url = os.getenv("REDIS_URL")
         if redis_url:
@@ -634,7 +637,13 @@ class ParameterStorageService:
     def _persist_to_redis(
         self, model_id: str, version_id: int, parameters: Dict[str, torch.Tensor]
     ) -> None:
-        """Persist parameters to Redis"""
+        """Persist parameters to Redis.
+
+        Only the latest few versions are ever read (serving, aggregation, and
+        the persistence loop all use the current version), so older snapshots
+        are pruned to keep Redis memory bounded. Versions increment by 1 per
+        write, so deleting v(version_id - history) maintains a rolling window.
+        """
         key = f"params:{model_id}:v{version_id}"
         version_key = f"params:{model_id}:current_version"
 
@@ -646,6 +655,11 @@ class ParameterStorageService:
         # Store in Redis
         self.redis_client.set(key, buffer.read())
         self.redis_client.set(version_key, str(version_id))
+
+        # Prune the snapshot that just fell out of the retention window.
+        old_version = version_id - self.param_version_history
+        if old_version > 0:
+            self.redis_client.delete(f"params:{model_id}:v{old_version}")
 
         logger.debug(f"Persisted to Redis: {key}")
 

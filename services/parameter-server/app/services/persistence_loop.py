@@ -20,12 +20,18 @@ class PersistenceLoop:
         checkpoint_interval: int = 50,
         final_version: int = 500,
         poll_interval: float = 5.0,
+        coordination_redis=None,
     ):
         self.storage = storage
         self.model_registry = model_registry
         self.checkpoint_interval = checkpoint_interval
         self.final_version = final_version
         self.poll_interval = poll_interval
+        # The job -> model_id mapping is written by the API Gateway into its own
+        # Redis logical DB (db 0), which is different from the DB the parameter
+        # server uses for parameter storage. Read it from that shared DB; fall
+        # back to our own client if no dedicated coordination client is given.
+        self.coordination_redis = coordination_redis or storage.redis_client
 
     def _iter_job_ids(self) -> Iterable[str]:
         if not self.storage.enable_redis or not self.storage.redis_client:
@@ -84,7 +90,7 @@ class PersistenceLoop:
 
     def _get_model_id_for_job(self, job_id: str) -> Optional[int]:
         key = f"job:{job_id}:model_id"
-        raw = self.storage.redis_client.get(key)
+        raw = self.coordination_redis.get(key)
         if raw is None:
             return None
         try:

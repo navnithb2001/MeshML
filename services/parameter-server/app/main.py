@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 from app.grpc_server import start_grpc_server
 
 # Import routers
-from app.routers import convergence, distribution, gradients, models, parameters, synchronization
+from app.routers import models, parameters
 from app.services.model_registry_client import ModelRegistryClient
 from app.services.parameter_storage import ParameterStorageService
 from app.services.persistence_loop import PersistenceLoop
@@ -99,7 +99,18 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️ gRPC server not available")
 
     persistence_stop = asyncio.Event()
-    redis_host, redis_port, redis_db, _redis_password = _resolve_redis_config()
+    redis_host, redis_port, redis_db, redis_password = _resolve_redis_config()
+    # The API Gateway writes the job -> model_id mapping into a shared Redis DB
+    # (COORDINATION_REDIS_DB, default 0). Read it from there rather than from the
+    # parameter server's own parameter-storage DB.
+    coordination_redis = Redis(
+        host=redis_host,
+        port=redis_port,
+        db=int(os.getenv("COORDINATION_REDIS_DB", "0")),
+        password=redis_password,
+        decode_responses=False,
+        socket_connect_timeout=5,
+    )
     persistence = PersistenceLoop(
         storage=ParameterStorageService(
             redis_host=redis_host,
@@ -111,6 +122,7 @@ async def lifespan(app: FastAPI):
         checkpoint_interval=int(os.getenv("CHECKPOINT_INTERVAL", "50")),
         final_version=int(os.getenv("FINAL_MODEL_VERSION", "500")),
         poll_interval=float(os.getenv("PERSISTENCE_POLL_INTERVAL", "5")),
+        coordination_redis=coordination_redis,
     )
     persistence_task = asyncio.create_task(persistence.run(persistence_stop))
     app.state.persistence_stop = persistence_stop
@@ -174,12 +186,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Include routers
-app.include_router(gradients.router)
 app.include_router(parameters.router)
 app.include_router(models.router)
-app.include_router(synchronization.router)
-app.include_router(convergence.router)
-app.include_router(distribution.router)
 
 
 # Health check endpoint

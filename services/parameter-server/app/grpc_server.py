@@ -13,7 +13,6 @@ import grpc
 import numpy as np
 import torch
 from app.proto import parameter_server_pb2, parameter_server_pb2_grpc
-from app.services.gradient_aggregation import GradientAggregationService, GradientUpdate
 from app.services.parameter_storage import ParameterStorageService
 
 logger = logging.getLogger(__name__)
@@ -34,10 +33,17 @@ def _compress(data: bytes, compression_type: str) -> bytes:
 class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer):
     def __init__(self):
         self.storage = ParameterStorageService()
-        self.aggregator = GradientAggregationService()
         self.optimizer_type = os.getenv("PARAMETER_OPTIMIZER", "sgd").lower()
         self.momentum = float(os.getenv("SGD_MOMENTUM", "0.9"))
         self.staleness_lambda = float(os.getenv("STALENESS_LAMBDA", "0.3"))
+        # Regularization / schedule (default OFF so behavior is unchanged unless
+        # explicitly enabled via env). weight_decay applies only to >=2D tensors
+        # (weights/kernels), not biases or norm params.
+        self.weight_decay = float(os.getenv("WEIGHT_DECAY", "0.0"))
+        # Step LR schedule: lr *= gamma every `lr_decay_step` versions (0 = off).
+        self.lr_decay_gamma = float(os.getenv("LR_DECAY_GAMMA", "0.5"))
+        self.lr_decay_step = int(os.getenv("LR_DECAY_STEP", "0"))
+        self.lr_min = float(os.getenv("LR_MIN", "1e-4"))
 
     def _load_tensor_dict(self, data: bytes) -> dict:
         if not data:
@@ -191,6 +197,12 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
                 staleness = max(0, current_version - request.version)
                 staleness_weight = math.exp(-self.staleness_lambda * staleness)
                 lr = self._get_learning_rate(request.job_id, request.learning_rate)
+                # Step LR schedule based on training progress (global version).
+                if self.lr_decay_step > 0:
+                    lr = max(
+                        self.lr_min,
+                        lr * (self.lr_decay_gamma ** (current_version // self.lr_decay_step)),
+                    )
                 effective_lr = lr * staleness_weight
 
                 momentum_key = f"momentum:{request.job_id}"
@@ -209,6 +221,9 @@ class ParameterServerServicer(parameter_server_pb2_grpc.ParameterServerServicer)
                     if not isinstance(grad, torch.Tensor):
                         grad = torch.tensor(grad)
                     grad_t = grad.detach().clone()
+                    # Weight decay (L2) on weight tensors only, not biases/norms.
+                    if self.weight_decay > 0 and param.dim() >= 2:
+                        grad_t = grad_t + self.weight_decay * param
 
                     buf = momentum_state.get(name)
                     if buf is None:

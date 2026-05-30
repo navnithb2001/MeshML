@@ -20,7 +20,6 @@ from typing import Any, Callable, Dict, List, Optional
 import httpx
 import torch
 import torch.nn as nn
-from meshml_worker.communication.heartbeat import HeartbeatSender
 from meshml_worker.communication.parameter_server_client import ParameterServerClient
 from meshml_worker.config import WorkerConfig
 from meshml_worker.training.dataloader import download_data_shard
@@ -68,6 +67,7 @@ class Trainer:
         model_path: Optional[Path] = None,
         data_paths: Optional[List[Path]] = None,
         pause_event: Optional[asyncio.Event] = None,
+        learning_rate: float = 0.01,
     ):
         """Initialize trainer
 
@@ -91,6 +91,8 @@ class Trainer:
         self.model_path = model_path
         self.data_paths = data_paths
         self.pause_event = pause_event
+        # Learning rate sent to the Parameter Server (which owns the SGD step).
+        self.learning_rate = learning_rate
         self.api_base_url = getattr(config, "api_base_url", "http://localhost:8000").rstrip("/")
         self.auth_token = self._load_auth_token()
         self._last_job_status_check = 0.0
@@ -120,7 +122,6 @@ class Trainer:
         # Managers
         self.checkpoint_manager: Optional[CheckpointManager] = None
         self.training_logger: Optional[TrainingLogger] = None
-        self.heartbeat: Optional[HeartbeatSender] = None
 
         # Optimization tools
         self.memory_profiler: Optional[MemoryProfiler] = None
@@ -374,16 +375,35 @@ class Trainer:
                     output, target_for_loss = self._apply_output_transform(output, target)
                     loss = self.criterion(output, target_for_loss)
                 self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                # Unscale in-place so the gradients we read and push to the
+                # Parameter Server are at their true (unscaled) magnitude.
+                self.scaler.unscale_(self.optimizer)
             else:
                 output = self.model(data)
                 output, target_for_loss = self._apply_output_transform(output, target)
                 loss = self.criterion(output, target_for_loss)
                 loss.backward()
-                self.optimizer.step()
 
-            self._push_gradients(batch_idx=batch_idx, epoch=epoch, loss=loss.item())
+            # Distributed update: the Parameter Server owns the optimizer step.
+            # Push this batch's gradients (computed against the current global
+            # weights), then pull the aggregated global weights back so every
+            # worker keeps training the *same* shared model and they actually
+            # complement each other instead of diverging on local copies.
+            pushed = self._push_gradients(batch_idx=batch_idx, epoch=epoch, loss=loss.item())
+            synced = self._sync_weights() if pushed else False
+
+            if not synced:
+                # Parameter Server unreachable / no global weights yet — fall
+                # back to a local optimizer step so training still progresses
+                # instead of stalling on stale weights.
+                if self.scaler:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+            elif self.scaler:
+                # Weights came from the server; just advance the AMP scale factor.
+                self.scaler.update()
 
             # Metric computation
             with torch.no_grad():
@@ -657,7 +677,9 @@ class Trainer:
         """
         if self.model is None:
             return
-        weights = {name: param.data.cpu() for name, param in self.model.named_parameters()}
+        # Seed the full state dict (parameters + buffers) so PullWeights returns
+        # a complete state dict that load_state_dict can consume.
+        weights = {name: tensor.detach().cpu() for name, tensor in self.model.state_dict().items()}
         logger.info(f"Seeding initial weights to Parameter Server ({len(weights)} tensors)...")
         try:
             response = self.grpc_client.push_gradients(
@@ -697,7 +719,7 @@ class Trainer:
             # Load state dict into model if we got weights
             if state_dict and self.model is not None:
                 try:
-                    self.model.load_state_dict(state_dict)
+                    self.model.load_state_dict(state_dict, strict=False)
                     logger.info(f"Loaded weights from Parameter Server: version={version}")
                 except Exception as e:
                     logger.warning(f"Failed to load state dict: {e}, using current weights")
@@ -713,161 +735,16 @@ class Trainer:
             logger.info("Using randomly initialized weights")
             self.global_version = 0
 
-    def _train_epoch(self, epoch: int) -> tuple:
-        """Train one epoch with profiling and benchmarking
-
-        Args:
-            epoch: Current epoch
-
-        Returns:
-            Tuple of (average_loss, metrics)
-        """
-        self.model.train()
-
-        epoch_loss = 0.0
-        num_batches = 0
-        correct = 0
-        total = 0
-
-        # Start epoch benchmark
-        if self.performance_benchmark:
-            self.performance_benchmark.start_epoch()
-
-        # Progress bar
-        pbar = tqdm(self.train_loader, desc=f"Epoch {epoch + 1}", leave=False)
-
-        for batch_idx, (data, target) in enumerate(pbar):
-            # Start batch benchmark
-            if self.performance_benchmark:
-                self.performance_benchmark.start_batch()
-
-            # Move to device
-            data = data.to(self.device)
-            target = target.to(self.device)
-
-            # Forward pass with optional profiling
-            if self.memory_profiler and batch_idx % 10 == 0:  # Profile every 10th batch
-                with self.memory_profiler.profile(f"epoch_{epoch}_batch_{batch_idx}"):
-                    loss, predictions = self._train_batch(data, target, batch_idx, epoch)
-            else:
-                loss, predictions = self._train_batch(data, target, batch_idx, epoch)
-
-            # Update metrics
-            epoch_loss += loss
-            num_batches += 1
-
-            # Calculate accuracy (only for classification tasks)
-            # Check if target is categorical (1D) or continuous (multi-dimensional)
-            if len(target.shape) == 1 or (len(target.shape) == 2 and target.shape[1] == 1):
-                # Classification task
-                _, predicted = torch.max(predictions, 1)
-                total += target.size(0)
-                if len(target.shape) == 2:
-                    target = target.squeeze(1)
-                correct += (predicted == target).sum().item()
-            else:
-                # Regression task - skip accuracy calculation
-                total += target.size(0)
-
-            # End batch benchmark
-            if self.performance_benchmark:
-                self.performance_benchmark.end_batch(batch_size=data.size(0))
-
-            # Update progress bar
-            current_loss = epoch_loss / num_batches
-            if correct > 0 and total > 0:
-                current_acc = 100.0 * correct / total
-                pbar.set_postfix({"loss": f"{current_loss:.4f}", "acc": f"{current_acc:.2f}%"})
-            else:
-                pbar.set_postfix({"loss": f"{current_loss:.4f}"})
-
-            # Periodic checkpoint
-            if (batch_idx + 1) % 100 == 0:
-                self._update_heartbeat_status(
-                    state="training",
-                    current_epoch=epoch,
-                    current_batch=batch_idx,
-                    total_batches=len(self.train_loader),
-                    loss=current_loss,
-                )
-
-        # End epoch benchmark
-        if self.performance_benchmark:
-            self.performance_benchmark.end_epoch()
-
-        avg_loss = epoch_loss / num_batches
-        accuracy = 100.0 * correct / total
-
-        metrics = {"accuracy": accuracy, "num_batches": num_batches, "num_samples": total}
-
-        # Log performance stats every few epochs
-        if self.performance_benchmark and epoch % 5 == 0:
-            self.performance_benchmark.print_summary()
-
-        return avg_loss, metrics
-
-    def _train_batch(
-        self, data: torch.Tensor, target: torch.Tensor, batch_idx: int, epoch: int
-    ) -> tuple:
-        """Train single batch
-
-        Args:
-            data: Input data
-            target: Target labels
-            batch_idx: Batch index
-            epoch: Current epoch
-
-        Returns:
-            Tuple of (loss, predictions)
-        """
-        self.optimizer.zero_grad()
-
-        # Mixed precision training
-        if self.scaler is not None:
-            with autocast():
-                output = self.model(data)
-                loss = self.criterion(output, target)
-
-            self.scaler.scale(loss).backward()
-
-            # Gradient clipping
-            if self.config.training.max_grad_norm > 0:
-                self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), self.config.training.max_grad_norm
-                )
-
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-        else:
-            # Standard training
-            output = self.model(data)
-            loss = self.criterion(output, target)
-            loss.backward()
-
-            # Gradient clipping
-            if self.config.training.max_grad_norm > 0:
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), self.config.training.max_grad_norm
-                )
-
-            self.optimizer.step()
-
-        # Push gradients to Parameter Server (periodically)
-        if (batch_idx + 1) % self.config.training.gradient_accumulation_steps == 0:
-            self._push_gradients(batch_idx, epoch, loss.item())
-
-        self.current_iteration += 1
-
-        return loss.item(), output
-
-    def _push_gradients(self, batch_idx: int, epoch: int, loss: float) -> None:
+    def _push_gradients(self, batch_idx: int, epoch: int, loss: float) -> bool:
         """Push gradients to Parameter Server
 
         Args:
             batch_idx: Batch index
             epoch: Current epoch
             loss: Current loss
+
+        Returns:
+            True if the Parameter Server accepted the gradients.
         """
         try:
             # Extract gradients
@@ -881,8 +758,13 @@ class Trainer:
 
             gradient_norm = gradient_norm**0.5
 
-            # Prepare metadata
-            metadata = {"gradient_norm": gradient_norm, "computation_time_ms": 0}
+            # Prepare metadata. learning_rate is consumed by the Parameter
+            # Server to scale its (SGD) optimizer step.
+            metadata = {
+                "gradient_norm": gradient_norm,
+                "computation_time_ms": 0,
+                "learning_rate": self.learning_rate,
+            }
 
             # Push to Parameter Server via HTTP
             response = self.grpc_client.push_gradients(
@@ -898,9 +780,37 @@ class Trainer:
             if response.get("success"):
                 self.global_version = int(response.get("new_version", self.global_version))
             logger.debug(f"Gradients pushed: batch={batch_idx}, response={response}")
+            return bool(response.get("success"))
 
         except Exception as e:
             logger.warning(f"Failed to push gradients: {e}")
+            return False
+
+    def _sync_weights(self) -> bool:
+        """Pull the latest aggregated weights from the Parameter Server.
+
+        After the server applies the optimizer step to the globally aggregated
+        gradients, every worker reloads the resulting weights so they all keep
+        training the same shared model.
+
+        Returns:
+            True if the local model was updated with global weights.
+        """
+        params_job_id = self.job_id or self.model_id
+        if self.model is None or not params_job_id:
+            return False
+        try:
+            state_dict, version = self.grpc_client.pull_weights(params_job_id)
+            if not state_dict:
+                return False
+            # strict=False so models with buffers (e.g. BatchNorm running stats)
+            # still load even though only learnable parameters are aggregated.
+            self.model.load_state_dict(state_dict, strict=False)
+            self.global_version = int(version)
+            return True
+        except Exception as e:
+            logger.debug(f"Weight sync skipped: {e}")
+            return False
 
     def _save_checkpoint(self, epoch: int, loss: float, metrics: Dict[str, Any]) -> None:
         """Save training checkpoint
@@ -926,65 +836,7 @@ class Trainer:
         except Exception as e:
             logger.warning(f"Failed to save checkpoint: {e}")
 
-    def _load_checkpoint(self, checkpoint_path: Path) -> None:
-        """Load checkpoint
-
-        Args:
-            checkpoint_path: Path to checkpoint
-        """
-        logger.info(f"Loading checkpoint: {checkpoint_path}")
-
-        try:
-            checkpoint_data = self.checkpoint_manager.load_checkpoint(checkpoint_path)
-
-            # Load model state
-            self.model.load_state_dict(checkpoint_data["model_state_dict"])
-
-            # Load optimizer state
-            self.optimizer.load_state_dict(checkpoint_data["optimizer_state_dict"])
-
-            # Load training state
-            self.current_epoch = checkpoint_data["epoch"] + 1
-            self.current_iteration = checkpoint_data["iteration"]
-
-            logger.info(f"Checkpoint loaded: epoch={self.current_epoch}")
-
-        except Exception as e:
-            logger.error(f"Failed to load checkpoint: {e}")
-            raise
-
-    def _start_heartbeat(self) -> None:
-        """Start heartbeat monitoring"""
-        self.heartbeat = HeartbeatSender(worker_id=self.config.worker.id, heartbeat_interval=30)
-
-        # Set heartbeat callback
-        def heartbeat_callback(data):
-            # In production, would send via HTTP or gRPC
-            logger.debug(f"Heartbeat: {data}")
-            return True
-
-        self.heartbeat.set_heartbeat_callback(heartbeat_callback)
-        self.heartbeat.start()
-
-        logger.info("Heartbeat started")
-
-    def _update_heartbeat_status(self, **kwargs) -> None:
-        """Update heartbeat status
-
-        Args:
-            **kwargs: Status fields to update
-        """
-        if self.heartbeat:
-            self.heartbeat.update_status(**kwargs)
-
     def _cleanup(self) -> None:
         """Cleanup resources"""
         logger.info("Cleaning up...")
-
-        if self.heartbeat:
-            self.heartbeat.stop()
-
-        # Update final status
-        self._update_heartbeat_status(state="idle")
-
         logger.info("Cleanup complete")

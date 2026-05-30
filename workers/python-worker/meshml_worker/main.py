@@ -262,6 +262,13 @@ class MeshMLWorker:
                     model_id = hyperparameters.get("model_id") or "unknown"
                     model_sha = hyperparameters.get("model_sha256")
                     total_batches = int(hyperparameters.get("total_batches") or 0)
+                    # Hyperparameters configured for the job (fall back to sane
+                    # defaults if the orchestrator didn't forward them).
+                    learning_rate = float(hyperparameters.get("learning_rate") or 0.01)
+                    # Train each assigned shard exactly once. Full-dataset epochs
+                    # (the user's convergence target) are driven by the
+                    # orchestrator, which re-assigns every shard that many times.
+                    num_epochs = 1
                     logger.info(
                         "Received assignment: job_id=%s batch_id=%s model_id=%s",
                         job_id,
@@ -303,13 +310,14 @@ class MeshMLWorker:
                         model_path=model_path,
                         data_paths=[data_dir],
                         pause_event=self._pause_event,
+                        learning_rate=learning_rate,
                     )
 
                     await trainer.train(
                         model_id=str(model_id),
                         job_id=job_id,
                         batch_ids=[assignment.batch_id],
-                        epochs=1,
+                        epochs=num_epochs,
                     )
 
                     if total_batches > 0:

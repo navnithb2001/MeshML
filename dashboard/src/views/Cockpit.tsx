@@ -13,7 +13,7 @@ interface JobInfo {
   dataset_id: string | null;
   dataset_name?: string;
   config: Record<string, any> | null;
-  progress: { current_batch?: number; total_batches?: number; loss?: number; accuracy?: number } | null;
+  progress: { current_batch?: number; total_batches?: number; loss?: number; accuracy?: number; current_epoch?: number; total_epochs?: number } | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -156,6 +156,14 @@ export default function Cockpit() {
               <div className="space-y-1">
                 <div className="text-xs uppercase tracking-widest text-slate-500">Task Type</div>
                 <div className="font-mono text-lg text-slate-900 dark:text-slate-50 capitalize">{job.config.task_type}</div>
+              </div>
+            )}
+            {job.progress && typeof job.progress.total_epochs === 'number' && job.progress.total_epochs > 0 && (
+              <div className="space-y-1">
+                <div className="text-xs uppercase tracking-widest text-slate-500">Epoch</div>
+                <div className="font-mono text-lg text-slate-900 dark:text-slate-50">
+                  {job.progress.current_epoch ?? 1} / {job.progress.total_epochs}
+                </div>
               </div>
             )}
             {job.progress && (

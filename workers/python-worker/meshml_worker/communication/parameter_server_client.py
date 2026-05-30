@@ -46,6 +46,19 @@ class ParameterServerClient:
             return {}
         return state_dict
 
+    def pull_weights(self, model_id: str) -> tuple[Dict[str, Any], int]:
+        """Pull the latest global weights and their version in a single call.
+
+        Also refreshes the underlying client's tracked version so subsequent
+        gradient pushes report the correct (non-stale) version.
+        """
+        state_dict, pulled_version = self._client.get_weights(
+            job_id=model_id,
+            worker_id="worker",
+            epoch=0,
+        )
+        return state_dict, int(pulled_version)
+
     def push_gradients(
         self,
         worker_id: str,

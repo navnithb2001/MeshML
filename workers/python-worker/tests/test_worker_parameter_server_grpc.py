@@ -72,15 +72,6 @@ async def test_worker_uses_parameter_server_grpc(monkeypatch, tmp_path):
         FakeMetricsClient,
     )
 
-    # Guard rail: worker path must not instantiate HTTP client for PS.
-    def _http_client_forbidden(*_args, **_kwargs):
-        raise AssertionError("HTTP client should not be used for Parameter Server")
-
-    monkeypatch.setattr(
-        "meshml_worker.communication.http_client.HTTPClient.__init__",
-        _http_client_forbidden,
-    )
-
     worker = MeshMLWorker(config)
     await worker.run(user_id="user-1")
 

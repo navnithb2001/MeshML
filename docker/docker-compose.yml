@@ -17,6 +17,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Applied automatically on a fresh data volume: creates data_batches,
+      # metrics, and the models.checkpoint_version column.
+      - ../scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U meshml"]
       interval: 10s
@@ -30,7 +33,10 @@ services:
     container_name: meshml-redis
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
+    # maxmemory is a safety net so a runaway producer can't OOM the whole VM and
+    # take down every service. noeviction makes writes fail (handled gracefully
+    # by the parameter server / worker) rather than evicting live training state.
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     healthcheck:
@@ -84,6 +90,7 @@ services:
     build:
       context: ../services/api-gateway
       dockerfile: Dockerfile
+    platform: linux/arm64
     container_name: meshml-api-gateway
     ports:
       - "8000:8000"
@@ -123,6 +130,7 @@ services:
     build:
       context: ../services/model-registry
       dockerfile: Dockerfile
+    platform: linux/arm64
     container_name: meshml-model-registry
     ports:
       - "8004:8004"
@@ -154,6 +162,7 @@ services:
     build:
       context: ../services/dataset-sharder
       dockerfile: Dockerfile
+    platform: linux/arm64
     container_name: meshml-dataset-sharder
     ports:
       - "8001:8001"
@@ -191,6 +200,7 @@ services:
     build:
       context: ../services/task-orchestrator
       dockerfile: Dockerfile
+    platform: linux/arm64
     container_name: meshml-task-orchestrator
     ports:
       - "8002:8002"
@@ -222,6 +232,7 @@ services:
     build:
       context: ../services/parameter-server
       dockerfile: Dockerfile
+    platform: linux/arm64
     container_name: meshml-parameter-server
     ports:
       - "8003:8003"
@@ -229,9 +240,19 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://meshml:meshml_password@postgres:5432/meshml
       REDIS_URL: redis://redis:6379/3
+      # The API gateway writes the job->model_id mapping into its Redis DB (0);
+      # the persistence loop reads it from there to upload checkpoints/final models.
+      COORDINATION_REDIS_DB: "0"
+      # Persistence loop uploads checkpoints/final models here (compose DNS name).
+      MODEL_REGISTRY_GRPC_URL: model-registry:50052
       AGGREGATION_STRATEGY: fedavg
       SYNC_MODE: async
       GRPC_PORT: "50054"
+      # Regularization + LR schedule (helps generalization on longer runs).
+      WEIGHT_DECAY: "5e-4"
+      LR_DECAY_GAMMA: "0.5"
+      LR_DECAY_STEP: "1500"
+      LR_MIN: "1e-4"
     depends_on:
       postgres:
         condition: service_healthy
@@ -250,6 +271,7 @@ services:
     build:
       context: ../services/metrics-service
       dockerfile: Dockerfile
+    platform: linux/arm64
     container_name: meshml-metrics-service
     ports:
       - "8005:8005"

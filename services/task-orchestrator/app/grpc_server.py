@@ -117,6 +117,9 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         )
         self._sharded_datasets = set()
         self._shard_lock = asyncio.Lock()
+        # Per-job epoch rollover state (train the full dataset `target_epochs` times).
+        self._epoch_locks: dict[str, asyncio.Lock] = {}
+        self._job_epochs: dict[str, int] = {}
         self.stream_manager = StreamManager()
         self.assignment_engine = AssignmentEngine(self.stream_manager)
         self._assignment_stop = asyncio.Event()
@@ -631,6 +634,38 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         self._batch_failures[key] = current
         return current
 
+    async def _get_target_epochs(self, job_id: str, session) -> int:
+        """Number of full passes over the dataset to train (job config `final_version`)."""
+        try:
+            row = await session.execute(
+                text("SELECT config->>'final_version' AS fv FROM jobs WHERE id::text = :job_id"),
+                {"job_id": job_id},
+            )
+            fv = row.scalar()
+            return max(1, int(fv)) if fv is not None else 1
+        except Exception:
+            return 1
+
+    def _advance_epoch(self, job_id: str) -> int:
+        """Atomically increment and return the number of completed epochs for a job."""
+        if self.redis:
+            try:
+                return int(self.redis.incr(f"epoch:{job_id}"))
+            except Exception:
+                pass
+        self._job_epochs[job_id] = self._job_epochs.get(job_id, 0) + 1
+        return self._job_epochs[job_id]
+
+    def _epochs_completed(self, job_id: str) -> int:
+        """Read (without incrementing) how many full epochs a job has completed."""
+        if self.redis:
+            try:
+                v = self.redis.get(f"epoch:{job_id}")
+                return int(v) if v else 0
+            except Exception:
+                pass
+        return self._job_epochs.get(job_id, 0)
+
     async def _maybe_complete_job(self, job_id: str, model_id: str, session) -> None:
         total_result = await session.execute(
             select(func.count()).select_from(DataBatch).where(DataBatch.job_id == job_id)
@@ -647,6 +682,50 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
         completed_batches = int(completed_result.scalar() or 0)
         if completed_batches < total_batches:
             return
+
+        # A full pass over the dataset (one epoch) just finished. Decide whether
+        # to start another epoch or finalize. Guard with a per-job lock so two
+        # concurrent task results don't both roll the epoch over.
+        lock = self._epoch_locks.setdefault(job_id, asyncio.Lock())
+        async with lock:
+            recount = await session.execute(
+                select(func.count())
+                .select_from(DataBatch)
+                .where(DataBatch.job_id == job_id)
+                .where(DataBatch.status == "COMPLETED")
+            )
+            if int(recount.scalar() or 0) < total_batches:
+                # Another result already rolled the epoch over; nothing to do.
+                return
+
+            target_epochs = await self._get_target_epochs(job_id, session)
+            epochs_done = self._advance_epoch(job_id)
+            logger.info(
+                "Job %s finished epoch %s/%s", job_id, epochs_done, target_epochs
+            )
+
+            if epochs_done < target_epochs:
+                # Start the next epoch: make every shard available again so the
+                # assignment engine re-dispatches the full dataset.
+                await session.execute(
+                    text(
+                        "UPDATE data_batches SET status = 'AVAILABLE', assigned_worker_id = NULL "
+                        "WHERE job_id = :job_id"
+                    ),
+                    {"job_id": job_id},
+                )
+                await session.execute(
+                    text(
+                        "UPDATE jobs SET status = 'running', config = jsonb_set("
+                        "  COALESCE(config::jsonb, '{}'::jsonb), '{current_epoch}', "
+                        "  to_jsonb((:epoch)::int), true)::json "
+                        "WHERE id::text = :job_id"
+                    ),
+                    {"job_id": job_id, "epoch": epochs_done},
+                )
+                await session.commit()
+                return
+            # Final epoch reached -> fall through to finalize the job.
 
         artifact_uri = None
         if self.model_registry and model_id:
@@ -743,20 +822,26 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             .where(DataBatch.status == "COMPLETED")
         )
         completed_batches = int(completed_result.scalar() or 0)
+        # Surface epoch progress: which full-dataset pass we're on out of the target.
+        target_epochs = await self._get_target_epochs(job_id, session)
+        current_epoch = min(self._epochs_completed(job_id) + 1, target_epochs)
         await session.execute(
             text(
-                "UPDATE jobs "
-                "SET progress = ("
-                "  jsonb_set("
-                "    jsonb_set(COALESCE(progress::jsonb, '{}'::jsonb), '{current_batch}', (:completed)::text::jsonb, true),"
-                "    '{total_batches}', (:total)::text::jsonb, true"
-                "  )::json"
-                ") "
+                "UPDATE jobs SET progress = ("
+                "  COALESCE(progress::jsonb, '{}'::jsonb) || jsonb_build_object("
+                "    'current_batch', (:completed)::int, "
+                "    'total_batches', (:total)::int, "
+                "    'current_epoch', (:cur_epoch)::int, "
+                "    'total_epochs', (:total_epochs)::int"
+                "  )"
+                ")::json "
                 "WHERE id::text = :job_id"
             ),
             {
                 "completed": completed_batches,
                 "total": total_batches,
+                "cur_epoch": current_epoch,
+                "total_epochs": target_epochs,
                 "job_id": job_id,
             },
         )

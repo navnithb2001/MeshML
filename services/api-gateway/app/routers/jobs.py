@@ -187,7 +187,7 @@ async def _initialize_job_background(
                 model_id=model_id or "",
                 dataset_id=dataset_id or "",
                 user_id=current_user_id,
-                batch_size=_get_int(config.get("batch_size"), 32),
+                batch_size=_get_int(config.get("batch_size"), 256),
                 num_epochs=_get_int(config.get("num_epochs"), 10),
                 learning_rate=_get_float(config.get("learning_rate"), 0.001),
                 optimizer=str(config.get("optimizer", "adam")),
@@ -251,7 +251,7 @@ async def _initialize_job_background(
             if dataset.num_samples and dataset.num_samples > 0:
                 num_shards = max(1, min(num_shards, int(dataset.num_samples)))
             shard_strategy = str(config.get("shard_strategy", "stratified"))
-            batch_size = _get_int(config.get("batch_size"), 32)
+            batch_size = _get_int(config.get("batch_size"), 256)
             dataset_path = str(dataset.gcs_path)
             if dataset_path and not dataset_path.endswith("/"):
                 dataset_path = f"{dataset_path}/"

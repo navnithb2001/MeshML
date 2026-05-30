@@ -103,57 +103,6 @@ async def update_learning_rate(model_id: str, request: Request):
         raise HTTPException(status_code=503, detail="Parameter server unavailable")
 
 
-@router.post("/gradients/submit")
-async def submit_gradients(request: Request):
-    """
-    Submit gradients from a worker
-
-    Proxies to Parameter Server: POST /gradients/submit
-    """
-    try:
-        body = await request.json()
-        url = f"{PARAMETER_SERVER_URL}/gradients/submit"
-
-        logger.info(f"Proxying gradient submission from worker {body.get('worker_id')}")
-
-        response = await http_client.post(url, json=body)
-        response.raise_for_status()
-
-        return response.json()
-
-    except httpx.HTTPStatusError as e:
-        logger.error(f"Parameter server returned error: {e.response.status_code}")
-        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
-    except Exception as e:
-        logger.error(f"Error proxying to parameter server: {e}")
-        raise HTTPException(status_code=503, detail="Parameter server unavailable")
-
-
-@router.get("/gradients/pending/{model_id}")
-async def get_pending_gradients(model_id: str):
-    """
-    Get pending gradients for a model
-
-    Proxies to Parameter Server: GET /gradients/pending/{model_id}
-    """
-    try:
-        url = f"{PARAMETER_SERVER_URL}/gradients/pending/{model_id}"
-
-        logger.info(f"Proxying GET pending gradients for model {model_id}")
-
-        response = await http_client.get(url)
-        response.raise_for_status()
-
-        return response.json()
-
-    except httpx.HTTPStatusError as e:
-        logger.error(f"Parameter server returned error: {e.response.status_code}")
-        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
-    except Exception as e:
-        logger.error(f"Error proxying to parameter server: {e}")
-        raise HTTPException(status_code=503, detail="Parameter server unavailable")
-
-
 @router.on_event("shutdown")
 async def shutdown_http_client():
     """Close HTTP client on shutdown"""

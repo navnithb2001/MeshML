@@ -139,9 +139,11 @@ async def _progress_bridge(stop_event: asyncio.Event, interval_seconds: int = 7)
     from app.db import AsyncSessionLocal
     from sqlalchemy import String, bindparam, text
 
+    # Merge into existing progress (don't overwrite) so fields written by other
+    # services — e.g. the orchestrator's current_epoch/total_epochs — survive.
     update_progress_stmt = text(
         "UPDATE jobs "
-        "SET progress = CAST(:progress AS json) "
+        "SET progress = (COALESCE(progress::jsonb, '{}'::jsonb) || CAST(:progress AS jsonb))::json "
         "WHERE id::text = :job_id"
     ).bindparams(
         bindparam("progress", type_=String),
