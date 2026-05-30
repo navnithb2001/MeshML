@@ -187,7 +187,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 model_id=request.model_id,
                 dataset_id=request.dataset_id,
                 user_id=request.user_id,
-                batch_size=request.batch_size or 32,
+                batch_size=request.batch_size or 256,
                 num_epochs=request.num_epochs or 10,
                 learning_rate=request.learning_rate or 0.001,
                 optimizer=request.optimizer or "adam",
@@ -719,7 +719,8 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                         "UPDATE jobs SET status = 'running', config = jsonb_set("
                         "  COALESCE(config::jsonb, '{}'::jsonb), '{current_epoch}', "
                         "  to_jsonb((:epoch)::int), true)::json "
-                        "WHERE id::text = :job_id"
+                        # Don't resurrect a job the user cancelled (or one already terminal).
+                        "WHERE id::text = :job_id AND status NOT IN ('cancelled', 'completed', 'failed')"
                     ),
                     {"job_id": job_id, "epoch": epochs_done},
                 )
@@ -749,7 +750,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                     "  true"
                     "  )::json"
                     ") "
-                    "WHERE id::text = :job_id"
+                    "WHERE id::text = :job_id AND status NOT IN ('cancelled', 'failed')"
                 ),
                 {
                     "job_id": job_id,
@@ -761,7 +762,7 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
                 text(
                     "UPDATE jobs "
                     "SET status = 'completed', completed_at = NOW() "
-                    "WHERE id::text = :job_id"
+                    "WHERE id::text = :job_id AND status NOT IN ('cancelled', 'failed')"
                 ),
                 {"job_id": job_id},
             )
@@ -784,7 +785,8 @@ class TaskOrchestratorServicer(task_orchestrator_pb2_grpc.TaskOrchestratorServic
             text(
                 "UPDATE jobs "
                 "SET status = 'failed', error_message = :message, completed_at = NOW() "
-                "WHERE id::text = :job_id"
+                # Don't clobber a job the user already cancelled (or one finished).
+                "WHERE id::text = :job_id AND status NOT IN ('cancelled', 'completed')"
             ),
             {
                 "job_id": job_id,

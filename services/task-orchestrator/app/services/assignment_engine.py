@@ -8,7 +8,7 @@ from app.db import AsyncSessionLocal
 from app.models import DataBatch
 from app.services.dataset_sharder_client import DatasetSharderClient
 from app.services.model_registry_client import ModelRegistryClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,16 @@ class AssignmentEngine:
         result = await session.execute(
             select(DataBatch)
             .where(DataBatch.status == "AVAILABLE")
+            # Only dispatch work for jobs that are still active — never for a
+            # cancelled/failed/completed job (otherwise workers churn rejecting
+            # assignments for a job the user already stopped).
+            .where(
+                text(
+                    "EXISTS (SELECT 1 FROM jobs j "
+                    "WHERE j.id::text = data_batches.job_id "
+                    "AND j.status IN ('pending', 'running'))"
+                )
+            )
             .with_for_update(skip_locked=True)
             .limit(1)
         )

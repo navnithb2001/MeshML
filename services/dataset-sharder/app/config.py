@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     USE_GCS: bool = os.getenv("USE_GCS", "false").lower() == "true"
 
     # Sharding settings
-    DEFAULT_BATCH_SIZE: int = 32
+    DEFAULT_BATCH_SIZE: int = 256
     MAX_SHARDS: int = 1000
 
     # Distribution settings
