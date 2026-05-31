@@ -4,7 +4,6 @@ Handles version management and parent-child relationships
 """
 
 import logging
-from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -12,7 +11,6 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Model, ModelState
-from ..schemas import ModelVersionCreate
 
 logger = logging.getLogger(__name__)
 

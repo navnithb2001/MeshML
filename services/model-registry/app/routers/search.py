@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db_session
 from ..models import Model, ModelState, ModelUsage
-from ..schemas import ModelListResponse, ModelResponse, ModelSearchQuery, ModelUsageStats
+from ..schemas import ModelListResponse, ModelResponse, ModelUsageStats
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

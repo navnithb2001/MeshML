@@ -9,7 +9,6 @@ Handles communication with the Dataset Sharder service for:
 
 import asyncio
 import logging
-import shutil
 import tarfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional

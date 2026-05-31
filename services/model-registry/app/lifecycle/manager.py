@@ -7,11 +7,10 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Model, ModelState
-from ..schemas import ModelStateUpdate
 
 logger = logging.getLogger(__name__)
 

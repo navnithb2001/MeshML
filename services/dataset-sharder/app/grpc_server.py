@@ -3,12 +3,12 @@
 import asyncio
 import logging
 import os
-from typing import List, Optional
+from typing import List
 
 import boto3
 import grpc
 from app.config import settings
-from app.core.storage import get_artifact_storage, get_dataset_storage
+from app.core.storage import get_artifact_storage
 from app.proto import dataset_sharder_pb2, dataset_sharder_pb2_grpc
 from app.services.batch_persistence import persist_batches
 from app.services.batch_storage import BatchManager, create_storage_backend

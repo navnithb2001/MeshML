@@ -17,25 +17,21 @@ import threading
 import time
 import uuid
 import zipfile
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, List, Optional
 
 import aiohttp
 import asyncio
 import boto3
 import csv
-import requests
 from requests.adapters import HTTPAdapter
 from botocore.config import Config
 from google.auth.credentials import AnonymousCredentials
 from google.cloud import storage
-from app.clients.dataset_sharder_client import DatasetSharderClient
 from app.models.dataset import Dataset
 from app.models.group import GroupMember
 from app.models.job import Job
 from app.models.user import User
-from app.proto import dataset_sharder_pb2
 from app.routers.auth import get_current_user
 from app.schemas.dataset import (
     DatasetFromURLRequest,
@@ -45,8 +41,7 @@ from app.schemas.dataset import (
 )
 from app.utils.database import AsyncSessionLocal, get_db
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status, Form
-from fastapi.responses import JSONResponse
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -383,11 +378,13 @@ async def delete_dataset(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this dataset"
         )
 
-    # Soft-Cancel active dependent jobs before dataset deletion
+    # Fail only ACTIVE dependent jobs before dataset deletion. Compare
+    # case-insensitively and spare every terminal state so a completed
+    # (or cancelled) job is never clobbered to failed.
     await db.execute(
         update(Job)
         .where(Job.dataset_id == dataset_id)
-        .where(Job.status.notin_(["completed", "failed"]))
+        .where(func.lower(Job.status).notin_(["completed", "failed", "cancelled"]))
         .values(
             status="failed",
             error_message="Source dataset was deleted by user."

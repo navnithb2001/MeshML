@@ -15,20 +15,18 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 import torch
 import torch.nn as nn
 from meshml_worker.communication.parameter_server_client import ParameterServerClient
 from meshml_worker.config import WorkerConfig
-from meshml_worker.training.dataloader import download_data_shard
 from meshml_worker.training.model_loader import ModelLoader
 from meshml_worker.utils.checkpoint import CheckpointManager
 from meshml_worker.utils.logger import TrainingLogger
 from meshml_worker.utils.optimization import (
     MemoryProfiler,
-    OptimizedDataLoader,
     PerformanceBenchmark,
 )
 from torch.cuda.amp import GradScaler, autocast

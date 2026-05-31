@@ -248,6 +248,12 @@ services:
       AGGREGATION_STRATEGY: fedavg
       SYNC_MODE: async
       GRPC_PORT: "50054"
+      # Checkpoints are uploaded every CHECKPOINT_INTERVAL versions and the
+      # download falls back to the latest one. Job completion is owned by the
+      # orchestrator's epoch loop, so the version-based "final" upload is
+      # effectively disabled (set very high) to avoid finalizing mid-training.
+      CHECKPOINT_INTERVAL: "50"
+      FINAL_MODEL_VERSION: "1000000000"
       # Regularization + LR schedule (helps generalization on longer runs).
       WEIGHT_DECAY: "5e-4"
       LR_DECAY_GAMMA: "0.5"

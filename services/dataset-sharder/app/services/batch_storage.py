@@ -9,14 +9,12 @@ import json
 import logging
 import os
 import pickle
-import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import boto3
-import numpy as np
 from app.core.storage import get_artifact_storage
 from app.services.dataset_loader import DataSample
 from app.services.dataset_sharder import ShardMetadata

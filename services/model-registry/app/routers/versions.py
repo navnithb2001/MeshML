@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db_session
-from ..models import Model
 from ..schemas import ModelResponse, ModelVersionCreate
 from ..versioning import VersionManager
 

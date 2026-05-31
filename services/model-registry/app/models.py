@@ -4,15 +4,12 @@ Extends the existing database models from Phase 1
 """
 
 import enum
-import uuid
 from datetime import datetime
 
 from sqlalchemy import JSON, Column, DateTime
-from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
 
 Base = declarative_base()
 

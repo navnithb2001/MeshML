@@ -8,10 +8,9 @@ without requiring gRPC port exposure.
 
 import logging
 import os
-from typing import Any, Dict
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request
 
 logger = logging.getLogger(__name__)
 

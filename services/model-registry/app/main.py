@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import settings
-from .database import create_tables, get_db_session
+from .database import create_tables
 from .grpc_server import start_grpc_server
 from .routers import lifecycle, models, search, versions
 from .storage.gcs_client import GCSClient

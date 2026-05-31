@@ -4,7 +4,6 @@ Model Initialization API Router
 HTTP endpoints for model initialization and management in Parameter Server.
 """
 
-from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -12,7 +11,6 @@ from app.services.model_initializer import (
     InitializationStrategy,
     ModelConfig,
     ModelInitializerService,
-    ModelStatus,
 )
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -154,8 +152,8 @@ async def initialize_model(
             model_kwargs=request.model_kwargs,
         )
 
-        # Initialize model
-        initialized_model = await service.initialize_model(config)
+        # Initialize model (return value unused; call performs the work)
+        await service.initialize_model(config)
 
         # Return model info
         model_info = service.get_model_info(request.model_id)
@@ -254,7 +252,7 @@ async def reinitialize_model(
         if request.initialization_strategy:
             new_strategy = InitializationStrategy(request.initialization_strategy.value)
 
-        initialized_model = await service.reinitialize_model(model_id, new_strategy)
+        await service.reinitialize_model(model_id, new_strategy)
 
         model_info = service.get_model_info(model_id)
 

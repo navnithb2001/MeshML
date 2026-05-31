@@ -44,6 +44,15 @@ class AssignmentEngine:
     async def _assign_batch(self, batch: DataBatch, worker_id: str, session: AsyncSession) -> None:
         batch.status = "ASSIGNED"
         batch.assigned_worker_id = worker_id
+        # Mark the job 'running' as soon as its first batch is dispatched
+        # (i.e. training has started), not only at the first epoch rollover.
+        await session.execute(
+            text(
+                "UPDATE jobs SET status = 'running' "
+                "WHERE id::text = :job_id AND status = 'pending'"
+            ),
+            {"job_id": batch.job_id},
+        )
         await session.commit()
 
     async def _build_assignment_payload(self, batch: DataBatch) -> dict:

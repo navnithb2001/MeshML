@@ -5,12 +5,11 @@ HTTP endpoints for parameter storage, versioning, and checkpoint management.
 """
 
 import pickle
-from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from app.services.model_registry_client import ModelRegistryClient
-from app.services.parameter_storage import CheckpointType, ParameterFormat, ParameterStorageService
+from app.services.parameter_storage import CheckpointType, ParameterStorageService
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 

@@ -9,7 +9,6 @@ Endpoints:
 """
 
 import logging
-from datetime import datetime, timedelta
 
 from app.models.user import User
 from app.schemas.auth import TokenResponse, UserLoginRequest, UserRegisterRequest, UserResponse, UserChangePasswordRequest

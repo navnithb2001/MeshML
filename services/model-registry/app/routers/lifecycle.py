@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db_session
 from ..lifecycle import LifecycleManager
-from ..models import Model, ModelState
-from ..schemas import ModelResponse, ModelStateUpdate
+from ..models import ModelState
+from ..schemas import ModelResponse
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

@@ -2,7 +2,6 @@
 
 import logging
 
-from app.models import Group, GroupInvitation, GroupMember, Job, User, Worker
 from app.utils.database import Base, engine
 from sqlalchemy import inspect
 

@@ -6,7 +6,7 @@ Handles downloading data shards and creating dataloaders.
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import requests
 from tqdm import tqdm

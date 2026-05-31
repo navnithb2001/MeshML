@@ -11,7 +11,6 @@ Endpoints:
 import logging
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional
 
 from app.models.group import Group, GroupInvitation, GroupMember
 from app.models.user import User

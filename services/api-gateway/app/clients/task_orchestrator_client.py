@@ -15,7 +15,7 @@ class TaskOrchestratorClient:
 
     def __init__(self, grpc_url: Optional[str] = None):
         self.grpc_url = grpc_url or os.getenv(
-            "TASK_ORCHESTRATOR_GRPC_URL", "task-orchestrator-service:50051"
+            "TASK_ORCHESTRATOR_GRPC_URL", "task-orchestrator:50051"
         )
 
     async def initiate_training(

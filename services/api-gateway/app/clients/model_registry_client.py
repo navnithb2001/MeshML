@@ -9,7 +9,7 @@ from app.proto import model_registry_pb2, model_registry_pb2_grpc
 class ModelRegistryClient:
     def __init__(self, grpc_url: str | None = None):
         self.grpc_url = grpc_url or os.getenv(
-            "MODEL_REGISTRY_GRPC_URL", "model-registry-service:50052"
+            "MODEL_REGISTRY_GRPC_URL", "model-registry:50052"
         )
 
     async def register_new_model(

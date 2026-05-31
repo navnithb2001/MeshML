@@ -307,14 +307,10 @@ class ModelRegistryServicer(model_registry_pb2_grpc.ModelRegistryServicer):
                     model.file_hash = file_hash
                     model.state = "COMPLETED"
                     await session.commit()
-                    try:
-                        await session.execute(
-                            text("UPDATE jobs SET status='COMPLETED' WHERE model_id = :model_id"),
-                            {"model_id": str(request.model_id)},
-                        )
-                        await session.commit()
-                    except Exception:
-                        await session.rollback()
+                    # NOTE: job status/lifecycle is owned solely by the Task
+                    # Orchestrator's epoch loop. The registry must NOT mark the
+                    # job completed here — doing so prematurely ended jobs when
+                    # the parameter server hit FINAL_MODEL_VERSION mid-training.
 
             return model_registry_pb2.FinalModelUploadResponse(
                 success=True, message="uploaded", gcs_path=gcs_path

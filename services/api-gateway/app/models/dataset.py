@@ -1,6 +1,5 @@
 """Dataset database model"""
 
-import uuid
 from datetime import datetime
 
 from app.utils.database import Base

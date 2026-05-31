@@ -2,7 +2,6 @@
 Configuration management for MeshML Worker
 """
 
-import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 

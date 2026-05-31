@@ -4,17 +4,14 @@ This module provides HTTP endpoints and management for distributing dataset
 batches to distributed workers.
 """
 
-import asyncio
 import logging
-import os
 import threading
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from app.services.batch_storage import BatchManager, BatchMetadata
-from app.services.dataset_sharder import ShardMetadata
 
 logger = logging.getLogger(__name__)
 

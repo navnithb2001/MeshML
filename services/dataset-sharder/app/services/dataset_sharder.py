@@ -10,10 +10,10 @@ import random
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
-from app.services.dataset_loader import DataSample, DatasetLoader, DatasetMetadata
+from app.services.dataset_loader import DatasetLoader, DatasetMetadata
 
 logger = logging.getLogger(__name__)
 

@@ -15,7 +15,7 @@ class DatasetSharderClient:
 
     def __init__(self, grpc_url: Optional[str] = None):
         self.grpc_url = grpc_url or os.getenv(
-            "DATASET_SHARDER_GRPC_URL", "dataset-sharder-service:50053"
+            "DATASET_SHARDER_GRPC_URL", "dataset-sharder:50053"
         )
 
     async def shard_dataset(
@@ -31,16 +31,6 @@ class DatasetSharderClient:
         seed: int,
     ) -> Dict[str, Any]:
         """Trigger dataset sharding in Dataset Sharder."""
-        payload = {
-            "dataset_id": dataset_id,
-            "dataset_path": dataset_path,
-            "format": format,
-            "num_shards": num_shards,
-            "strategy": strategy,
-            "batch_size": batch_size,
-            "seed": seed,
-        }
-
         async with grpc.aio.insecure_channel(self.grpc_url) as channel:
             stub = dataset_sharder_pb2_grpc.DatasetSharderStub(channel)
             response = await stub.ShardDataset(

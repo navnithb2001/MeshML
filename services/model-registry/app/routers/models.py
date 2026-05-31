@@ -5,14 +5,12 @@ Implements TASK-11.1 (storage) and TASK-11.2 (lifecycle management)
 
 import logging
 import os
-from typing import Optional
 from uuid import UUID
 
 import boto3
 from botocore.config import Config
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import StreamingResponse
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -125,7 +123,7 @@ async def delete_model(
     lifecycle = LifecycleManager(db)
     try:
         await lifecycle.deprecate(model_id, reason="Model deleted by user")
-    except ValueError as e:
+    except ValueError:
         # Already deprecated or invalid transition
         pass
 

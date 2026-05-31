@@ -13,23 +13,18 @@ Key Features:
 - Delta compression for efficient storage
 """
 
-import copy
 import hashlib
 import io
-import json
 import logging
 import os
-import pickle
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-import numpy as np
 import redis
 import torch
-import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
@@ -751,9 +746,9 @@ class ParameterStorageService:
 
         checkpoints = self.checkpoints[model_id]
 
-        # Keep BEST and FINAL checkpoints always
+        # Keep BEST and FINAL checkpoints always (they're simply never added to
+        # `others`, which is the only list eligible for deletion).
         protected_types = {CheckpointType.BEST, CheckpointType.FINAL}
-        protected = [c for c in checkpoints if c.checkpoint_type in protected_types]
         others = [c for c in checkpoints if c.checkpoint_type not in protected_types]
 
         # Sort others by created_at descending
