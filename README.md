@@ -59,14 +59,14 @@ MeshML is composed of six stateless services plus shared infrastructure (Postgre
           │ Task           │   │ Model Registry │  │ Dataset      │
           │ Orchestrator   │   └───────┬────────┘  │ Sharder      │
           └───────┬────────┘           │           └──────┬───────┘
-        gRPC bidi │ (StreamTasks)       │ artifacts        │ shards
+        gRPC bidi │ (StreamTasks)      │ artifacts        │ shards
                   ▼                     ▼                  ▼
           ┌────────────────┐     ┌──────────────────────────────┐
-          │     WORKER     │◄───►│        Object Storage         │
-          │ (pull/compute/ │ HTTP│         (MinIO / GCS)         │
+          │     WORKER     │◄───►│        Object Storage        │
+          │ (pull/compute/ │ HTTP│         (MinIO / GCS)        │
           │   push grads)  │     └──────────────────────────────┘
           └───────┬────────┘
-        gRPC      │ PullWeights / PushGradients
+             grpc │ PullWeights / PushGradients
                   ▼
           ┌────────────────┐  background persistence loop   ┌────────────────┐
           │ Parameter      │ ─────────────────────────────► │ Model Registry │
