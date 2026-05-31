@@ -60,7 +60,7 @@ MeshML is composed of six stateless services plus shared infrastructure (Postgre
           │ Orchestrator   │   └───────┬────────┘  │ Sharder      │
           └───────┬────────┘           │           └──────┬───────┘
         gRPC bidi │ (StreamTasks)      │ artifacts        │ shards
-                  ▼                     ▼                  ▼
+                  ▼                    ▼                  ▼
           ┌────────────────┐     ┌──────────────────────────────┐
           │     WORKER     │◄───►│        Object Storage        │
           │ (pull/compute/ │ HTTP│         (MinIO / GCS)        │
